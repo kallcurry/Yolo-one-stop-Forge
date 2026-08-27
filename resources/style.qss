@@ -702,6 +702,14 @@ QTableWidget::item:hover {
     background-color: rgba(49, 183, 255, 74);
 }
 
+QHeaderView {
+    background-color: #0C1822;
+}
+
+QHeaderView::section {
+    background-color: #0C1822;
+}
+
 QLabel#duplicateTitle {
     color: #F3FCFF;
     font-size: 18px;
