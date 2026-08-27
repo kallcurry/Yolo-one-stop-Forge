@@ -80,21 +80,18 @@ Files_process_QT/
 │   └── training_runner.py         # Ultralytics 子进程训练入口
 ├── resources/                     # 深色主题 QSS 与四任务审查/训练模板
 ├── deployment/                    # 安装、启动、诊断与环境配置
-├── tests/                         # 174 项单元/集成测试（Qt offscreen 基线全绿）
 ├── models/                        # 本地模型权重缓存（不入库）
 ├── training/                      # 训练任务快照与运行结果（不入库）
 └── docs/                          # 本文档中心
 ```
 
-## 开发与验证
+## 发布前检查
 
 ```bash
-# 全部单元测试（无显示器环境：加 QT_QPA_PLATFORM=offscreen）
-python -m unittest discover -s tests -v
-
-# 提交前建议三步
+# 环境体检（Qt 插件、CUDA、依赖一致性等）
 python deployment/doctor.py --require-label-tool
-python -m unittest discover -s tests -v
+
+# 启动冒烟
 bash deployment/run.sh
 ```
 

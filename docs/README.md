@@ -13,7 +13,7 @@
 | [模型仓库约定](model-repository.md) | 仓库结构、模型识别格式 |
 | [操作中心工具](operation-tools.md) | 统计、匹配检查、重复审查、标签替换等 |
 | [配置与持久化](configuration.md) | 项目内配置与 QSettings 说明 |
-| [开发与测试](development.md) | 代码结构、运行链路、测试指引 |
+| [开发与测试](development.md) | 代码结构、运行链路、内部开发验证 |
 | [常见问题](troubleshooting.md) | xcb 冲突、缺 TXT、类别不全、断点续训等 |
 | [安全与数据保护](security.md) | 删除策略、副本策略、迁移注意事项 |
 | [路线图](roadmap.md) | 当前边界、推荐后续方向、部署资料 |

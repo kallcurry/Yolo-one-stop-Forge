@@ -36,7 +36,7 @@ Files_process_QT/
 │   └── training_runner.py           # Ultralytics 子进程训练入口
 ├── resources/                       # QSS 与 JSON 模板
 ├── deployment/                      # 安装、启动、诊断和部署文档
-├── tests/                           # 单元测试
+├── docs/                            # 专题文档中心
 ├── models/                          # 本地模型缓存，默认不提交
 ├── training/                        # 任务和训练结果，默认不提交
 └── .runtime/                        # 运行时缓存，默认不提交
@@ -70,24 +70,18 @@ main.py
   -> 训练结果由模型管理自动发现
 ```
 
-运行全部单元测试：
+### 内部开发验证
+
+单元/集成测试属于**开发期资产**（覆盖审查规则、动态数据结构、标注同步、数据准备、重复检测、图片缩放、模型解析、模型对比、训练配置、训练任务、训练监控、窗口几何和 UI 效果等核心模块），**不随仓库分发**。开发环境中运行：
 
 ```bash
+# 全部单元测试（无显示器环境：加 QT_QPA_PLATFORM=offscreen）
 python -m unittest discover -s tests -v
 ```
 
-无显示器环境可尝试：
-
-```bash
-QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
-```
-
-提交或发布前建议执行：
+提交或发布前建议执行环境体检与启动冒烟：
 
 ```bash
 python deployment/doctor.py --require-label-tool
-python -m unittest discover -s tests -v
 bash deployment/run.sh
 ```
-
-测试覆盖审查规则、动态数据结构、标注同步、数据准备、重复检测、图片缩放、模型解析、模型对比、训练配置、训练任务、训练监控、窗口几何和 UI 效果等核心模块。

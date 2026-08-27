@@ -32,3 +32,6 @@ build/
 
 # --- One-off historical artifacts with machine-specific paths ---
 labelme_stats_report.md
+
+# --- 开发期测试资产（不随仓库分发） ---
+tests/
