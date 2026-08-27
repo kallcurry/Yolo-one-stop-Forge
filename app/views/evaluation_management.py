@@ -98,6 +98,9 @@ class EvaluationManagementView(QWidget):
         self.setPalette(palette)
 
         self._build_ui()
+        # 深色调色板传递到全部子控件（含表格 viewport 等 QSS 半透明区域）
+        for child in self.findChildren(QWidget):
+            child.setPalette(palette)
         self.refresh_tasks()
         QTimer.singleShot(300, self._resume_queued)
         QTimer.singleShot(350, self._init_choices)
@@ -503,9 +506,14 @@ class EvaluationManagementView(QWidget):
         self.result_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.result_table.verticalHeader().setVisible(False)
         header = self.result_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.Interactive)
+        header.setStretchLastSection(False)
+        self.result_table.horizontalHeader().setMinimumSectionSize(90)
+        self.result_table.setColumnWidth(0, 300)
+        self.result_table.setColumnWidth(1, 130)
+        self.result_table.setColumnWidth(2, 130)
         layout.addWidget(self.result_table, 1)
 
         btn_row = QHBoxLayout()
