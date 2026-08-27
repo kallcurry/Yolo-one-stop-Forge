@@ -69,10 +69,15 @@ class EvaluationManagementView(QWidget):
     """Top-level evaluation module with its own serial task queue."""
 
     def __init__(self, parent=None, registry_path=None,
-                 runner_script: str | None = None):
+                 runner_script: str | None = None, eval_root=None):
         super().__init__(parent)
+        # eval_root 可注入（冒烟/测试用临时目录），默认使用平台 evaluation/；
+        # 注册表为持久化 sqlite，任务历史重启后仍可恢复。
+        self._eval_root = (
+            Path(eval_root).expanduser().resolve() if eval_root else EVAL_ROOT
+        )
         self._registry = EvaluationTaskRegistry(
-            registry_path or (EVAL_ROOT / 'task_registry.sqlite3')
+            registry_path or (self._eval_root / 'task_registry.sqlite3')
         )
         self._registry.recover_interrupted()
         self._runner_script = runner_script or str(
@@ -689,7 +694,7 @@ class EvaluationManagementView(QWidget):
                 task_type=task_type or _guess_task_type(
                     str(training_batch or test_batch)
                 ),
-                project_dir=str(EVAL_ROOT / 'runs'),
+                project_dir=str(self._eval_root / 'runs'),
                 run_name=f'{model_label}@{test_batch}',
                 training_run_dir=training_run_dir,
                 training_batch=training_batch or None,
@@ -712,7 +717,7 @@ class EvaluationManagementView(QWidget):
             )
             return
 
-        task_dir = EVAL_ROOT / 'tasks' / job.job_id
+        task_dir = self._eval_root / 'tasks' / job.job_id
         try:
             task_dir.mkdir(parents=True, exist_ok=True)
             spec_path = save_evaluation_job(job, task_dir / 'evaluation_request.json')
@@ -720,7 +725,7 @@ class EvaluationManagementView(QWidget):
             self._registry.create(
                 job.to_dict(),
                 task_dir=str(task_dir),
-                output_dir=str(EVAL_ROOT / 'runs' / job.run_name),
+                output_dir=str(self._eval_root / 'runs' / job.run_name),
                 log_path=str(log_path),
             )
         except Exception as exc:  # noqa: BLE001
@@ -1121,6 +1126,11 @@ class EvaluationManagementView(QWidget):
         self._registry.delete(record.task_id)
         self._selected_task = None
         self.refresh_tasks()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self, '_registry'):
+            QTimer.singleShot(0, self.refresh_tasks)
 
     def closeEvent(self, event):
         if self._process is not None and self._process.state() != QProcess.NotRunning:
