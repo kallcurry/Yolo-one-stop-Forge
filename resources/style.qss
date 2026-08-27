@@ -658,6 +658,30 @@ QCheckBox::indicator:checked {
     );
 }
 
+QRadioButton {
+    color: #D8E2EF;
+    spacing: 7px;
+}
+
+QRadioButton::indicator {
+    width: 15px;
+    height: 15px;
+    border: 1px solid #566579;
+    border-radius: 8px;
+    background-color: rgba(17, 24, 33, 168);
+}
+
+QRadioButton::indicator:checked {
+    border-color: #36B7FF;
+    background-color: qradialgradient(
+        cx: 0.5, cy: 0.5, radius: 0.5, fx: 0.5, fy: 0.5,
+        stop: 0 #45D483,
+        stop: 0.55 #45D483,
+        stop: 0.65 rgba(69, 212, 131, 0),
+        stop: 1 rgba(69, 212, 131, 0)
+    );
+}
+
 QTableWidget {
     background-color: rgba(8, 16, 25, 145);
     alternate-background-color: rgba(18, 37, 52, 105);
