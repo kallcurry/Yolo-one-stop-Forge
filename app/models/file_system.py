@@ -310,7 +310,7 @@ def _build_project_dataset_tree(root: Path, root_fmt: DirFormat) -> dict:
     if test_root.is_dir():
         children.append({
             'path': str(test_root),
-            'display_name': '验证 / 测试数据',
+            'display_name': '测试数据',
             'format': None,
             'selectable': False,
             'kind': 'scope',

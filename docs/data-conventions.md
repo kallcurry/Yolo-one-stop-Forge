@@ -30,10 +30,16 @@ Dataset_Project/
 │       │   └── labels/val/
 │       ├── dataset.yaml
 │       └── preparation_manifest.json
-├── test_data/                      # 验证/测试数据
-│   ├── images/
+├── test_data/                      # 测试数据（评估用）
+│   ├── images/                     # 旧扁平格式（默认测试集），保留
 │   ├── annotations/
-│   └── labels/
+│   ├── labels/
+│   └── <批次名>/                   # 数据准备新生成的测试批次（评估中心使用）
+│       ├── images/
+│       ├── annotations/
+│       ├── labels/
+│       ├── dataset.yaml
+│       └── test_manifest.json
 └── videos/                         # 可选，当前不进入主要审查流程
 ```
 

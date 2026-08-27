@@ -475,7 +475,7 @@ class TrainingManagementView(QWidget):
         options.addWidget(QLabel('验证比例'), 1, 0)
         self.val_ratio_spin = QDoubleSpinBox()
         self.val_ratio_spin.setObjectName('trainingSpin')
-        self.val_ratio_spin.setRange(0.05, 0.5)
+        self.val_ratio_spin.setRange(0.10, 0.5)
         self.val_ratio_spin.setSingleStep(0.05)
         self.val_ratio_spin.setValue(0.2)
         self.val_ratio_spin.setSuffix('  / VAL')
@@ -497,6 +497,25 @@ class TrainingManagementView(QWidget):
             '默认复制以保护原始数据；硬链接节省空间，但修改副本也会修改源文件'
         )
         options.addWidget(self.write_mode_combo, 2, 1, 1, 3)
+
+        options.addWidget(QLabel('测试集比例'), 3, 0)
+        self.test_ratio_spin = QDoubleSpinBox()
+        self.test_ratio_spin.setObjectName('trainingSpin')
+        self.test_ratio_spin.setRange(0.0, 0.5)
+        self.test_ratio_spin.setSingleStep(0.05)
+        self.test_ratio_spin.setValue(0.0)
+        self.test_ratio_spin.setSuffix('  / TEST')
+        self.test_ratio_spin.setToolTip(
+            '按比例从各来源独立抽取测试数据（类别感知、稀有类保护），'
+            '剩余样本再划分训练/验证；测试集独立写入 test_data/<测试批次名>/，'
+            '不会混入训练批次。0 表示不划分测试集。'
+        )
+        options.addWidget(self.test_ratio_spin, 3, 1)
+        options.addWidget(QLabel('测试批次名'), 3, 2)
+        self.test_batch_name_edit = QLineEdit()
+        self.test_batch_name_edit.setObjectName('trainingEdit')
+        self.test_batch_name_edit.setPlaceholderText('测试比例>0 时必填，如 2026-08-27-test')
+        options.addWidget(self.test_batch_name_edit, 3, 3, 1, 3)
 
         self.background_checkbox = QPushButton('空标注作背景')
         self.background_checkbox.setObjectName('trainingOptionBtn')
@@ -2330,6 +2349,8 @@ class TrainingManagementView(QWidget):
             label_dir=self._label_dir,
             val_ratio=self.val_ratio_spin.value(),
             seed=self.seed_spin.value(),
+            test_ratio=float(self.test_ratio_spin.value()),
+            test_batch_name=self.test_batch_name_edit.text().strip(),
             use_copy=bool(self.write_mode_combo.currentData()),
             exclude_test=True,
             allow_background_without_label=self.background_checkbox.isChecked(),
@@ -2400,6 +2421,10 @@ class TrainingManagementView(QWidget):
         self.lbl_task_state.setText(
             f'数据已准备 · {prepared.total_count} 张\n'
             f'TRAIN {prepared.train_count} / VAL {prepared.val_count}'
+            + (
+                f' / TEST {prepared.test_count}'
+                if prepared.test_count else ''
+            )
         )
         self.lbl_preparation_state.setText('训练数据已生成')
         self.progress.setValue(100)
@@ -2407,6 +2432,11 @@ class TrainingManagementView(QWidget):
         self._update_review_summary(inspect_training_batch(prepared.batch_root))
         self.dataset_prepared.emit(str(prepared.batch_root), self._task_type)
         self.status_message.emit(f'训练数据已生成: {prepared.batch_root.name}')
+        if prepared.test_batch_root is not None:
+            self.status_message.emit(
+                f'测试数据已生成: {prepared.test_batch_root.name}'
+                f'（{prepared.test_count} 张，用于评估中心）'
+            )
         self._show_step(1)
 
     def _on_dataset_job_failed(self, message: str):

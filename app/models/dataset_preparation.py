@@ -43,6 +43,8 @@ class DatasetPreparationRequest:
     label_dir: str = 'labels'
     val_ratio: float = 0.2
     seed: int = 42
+    test_ratio: float = 0.0
+    test_batch_name: str = ''
     use_copy: bool = False
     exclude_test: bool = True
     allow_background_without_label: bool = False
@@ -63,6 +65,12 @@ class DatasetPreparationRequest:
         _validate_simple_name(self.label_dir, '标签目录')
         if not 0.0 < float(self.val_ratio) < 1.0:
             raise DatasetPreparationError('验证集比例必须大于 0 且小于 1')
+        test_ratio = float(self.test_ratio)
+        if not 0.0 <= test_ratio < 1.0:
+            raise DatasetPreparationError('测试集比例必须大于等于 0 且小于 1')
+        test_batch_name = str(self.test_batch_name or '').strip()
+        if test_ratio > 0:
+            _validate_simple_name(test_batch_name, '测试批次名称')
         if not sources:
             raise DatasetPreparationError('至少选择一个原始数据批次')
         return DatasetPreparationRequest(
@@ -74,6 +82,8 @@ class DatasetPreparationRequest:
             label_dir=str(self.label_dir).strip(),
             val_ratio=float(self.val_ratio),
             seed=int(self.seed),
+            test_ratio=test_ratio,
+            test_batch_name=test_batch_name,
             use_copy=bool(self.use_copy),
             exclude_test=bool(self.exclude_test),
             allow_background_without_label=bool(
@@ -201,6 +211,8 @@ class PreparedDataset:
     train_count: int
     val_count: int
     total_count: int
+    test_batch_root: Path | None = None
+    test_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -459,29 +471,51 @@ def prepare_dataset(request: DatasetPreparationRequest,
     if target.exists():
         raise DatasetPreparationError(f'训练批次已存在，不能覆盖: {target}')
 
+    # 测试集划分（可选）：按测试比例逐来源抽取（类别感知、稀有类保护），
+    # 再从剩余样本中按验证比例划分；测试样本独立写入 test_data/<批次名>，
+    # 训练批次中永不混入测试样本。
+    test_samples: list[DatasetSample] = []
+    if request.test_ratio > 0:
+        test_stems = _source_stratified_val_stems(
+            [
+                (sample.source_name, sample.stem, sample.label_path)
+                for sample in scan.samples
+            ],
+            request.test_ratio,
+            request.seed,
+        )
+        test_samples = [
+            sample for sample in scan.samples if sample.stem in test_stems
+        ]
+    remaining = [
+        sample for sample in scan.samples
+        if sample.stem not in {sample.stem for sample in test_samples}
+    ]
     val_stems = _source_stratified_val_stems(
         [
             (sample.source_name, sample.stem, sample.label_path)
-            for sample in scan.samples
+            for sample in remaining
         ],
         request.val_ratio,
         request.seed,
     )
-    train_samples = [sample for sample in scan.samples if sample.stem not in val_stems]
-    val_samples = [sample for sample in scan.samples if sample.stem in val_stems]
+    train_samples = [sample for sample in remaining if sample.stem not in val_stems]
+    val_samples = [sample for sample in remaining if sample.stem in val_stems]
 
     training_root.mkdir(parents=True, exist_ok=True)
     staging = training_root / (
         f'.{request.target_name}.preparing-{uuid.uuid4().hex[:8]}'
     )
+    test_target: Path | None = None
     try:
         _create_output_tree(staging, request.annotation_dir)
         split_by_stem = {
             sample.stem: 'train' for sample in train_samples
         }
         split_by_stem.update({sample.stem: 'val' for sample in val_samples})
+        split_by_stem.update({sample.stem: 'test' for sample in test_samples})
 
-        for sample in scan.samples:
+        for sample in remaining:
             split = split_by_stem[sample.stem]
             merged_image = staging / 'images' / sample.image_path.name
             merged_annotation = (
@@ -512,6 +546,9 @@ def prepare_dataset(request: DatasetPreparationRequest,
         _write_manifest(
             manifest_path, request, scan, split_by_stem,
             len(train_samples), len(val_samples),
+            test_batch=request.test_batch_name if test_samples else '',
+            test_ratio=request.test_ratio if test_samples else 0.0,
+            test_count=len(test_samples),
         )
         (staging / 'review_report.json').write_text(
             json.dumps({
@@ -523,6 +560,52 @@ def prepare_dataset(request: DatasetPreparationRequest,
             }, ensure_ascii=False, indent=2),
             encoding='utf-8',
         )
+
+        # 测试批次独立写入 test_data/<测试批次名>/，与训练批次同一次准备原子完成
+        if test_samples:
+            test_root = request.dataset_root / 'test_data'
+            test_target = test_root / request.test_batch_name
+            if test_target.exists():
+                raise DatasetPreparationError(
+                    f'测试批次已存在，不能覆盖: {test_target}'
+                )
+            test_root.mkdir(parents=True, exist_ok=True)
+            test_staging = test_root / (
+                f'.{request.test_batch_name}.preparing-{uuid.uuid4().hex[:8]}'
+            )
+            try:
+                _create_test_output_tree(test_staging, request.annotation_dir)
+                for sample in test_samples:
+                    _materialize(
+                        sample.image_path,
+                        test_staging / 'images' / sample.image_path.name,
+                        request.use_copy,
+                    )
+                    _materialize(
+                        sample.annotation_path,
+                        test_staging / request.annotation_dir
+                        / sample.annotation_path.name,
+                        request.use_copy,
+                    )
+                    test_label = test_staging / 'labels' / f'{sample.stem}.txt'
+                    if sample.label_path is not None:
+                        _materialize(sample.label_path, test_label,
+                                     request.use_copy)
+                    else:
+                        test_label.write_text('', encoding='utf-8')
+                _write_test_dataset_yaml(
+                    test_staging / 'dataset.yaml', request, test_samples
+                )
+                _write_test_manifest(
+                    test_staging / 'test_manifest.json', request, scan,
+                    test_samples, request.target_name,
+                )
+                test_staging.rename(test_target)
+            except Exception:
+                if test_staging.exists():
+                    shutil.rmtree(test_staging, ignore_errors=True)
+                raise
+
         staging.rename(target)
     except Exception:
         if staging.exists():
@@ -536,6 +619,8 @@ def prepare_dataset(request: DatasetPreparationRequest,
         train_count=len(train_samples),
         val_count=len(val_samples),
         total_count=len(scan.samples),
+        test_batch_root=test_target,
+        test_count=len(test_samples),
     )
 
 
@@ -970,7 +1055,9 @@ def _resolve_dataset_split(yaml_path: Path, payload: dict,
 
 def _write_manifest(path: Path, request: DatasetPreparationRequest,
                     scan: DatasetScanResult, split_by_stem: dict[str, str],
-                    train_count: int, val_count: int):
+                    train_count: int, val_count: int,
+                    test_batch: str = '', test_ratio: float = 0.0,
+                    test_count: int = 0):
     request_data = asdict(request)
     request_data['dataset_root'] = str(request.dataset_root)
     records = []
@@ -982,7 +1069,7 @@ def _write_manifest(path: Path, request: DatasetPreparationRequest,
             'annotation_path': str(sample.annotation_path),
             'label_path': str(sample.label_path) if sample.label_path else None,
             'generated_empty_label': sample.label_path is None,
-            'split': split_by_stem[sample.stem],
+            'split': split_by_stem.get(sample.stem, 'test'),
         })
     payload = {
         'version': 1,
@@ -992,11 +1079,98 @@ def _write_manifest(path: Path, request: DatasetPreparationRequest,
             'total': len(scan.samples),
             'train': train_count,
             'val': val_count,
+            'test': test_count,
+            'test_batch': test_batch,
+            'test_ratio': test_ratio,
             'test_excluded': len(scan.test_excluded),
             'duplicates': len(scan.duplicate_images),
             'skipped_missing_annotations': len(scan.missing_annotations),
             'skipped_missing_labels': len(scan.missing_labels),
         },
+        'records': records,
+    }
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding='utf-8',
+    )
+
+
+def _create_test_output_tree(root: Path, annotation_dir: str):
+    for relative in ('images', annotation_dir, 'labels'):
+        (root / relative).mkdir(parents=True, exist_ok=True)
+
+
+def _write_test_dataset_yaml(path: Path, request: DatasetPreparationRequest,
+                             samples: Sequence[DatasetSample]):
+    """Write the dataset.yaml for an evaluation test batch.
+
+    ``train`` and ``val`` both point at the single flat ``images`` directory
+    so the text file can be consumed by Ultralytics-style evaluation flows
+    (the evaluation center will drive the actual metric computation).
+    """
+    label_paths = [
+        sample.label_path for sample in samples if sample.label_path is not None
+    ]
+    annotations = {sample.stem: sample.annotation_path for sample in samples}
+    class_names = _resolved_class_names(
+        request.class_names, label_paths, annotations,
+    )
+    payload = {
+        'train': 'images',
+        'val': 'images',
+        'names': class_names,
+    }
+    if request.task_type == 'pose':
+        columns = _observed_label_columns(
+            [sample.label_path for sample in samples if sample.label_path],
+            request.task_type,
+        )
+        schema = _schema_from_columns(columns, request.task_type)
+        keypoint_count, dimensions = schema or (
+            (len(request.keypoints), 3) if request.keypoints else (0, 0)
+        )
+        if keypoint_count:
+            keypoint_names = _infer_keypoint_names_from_samples(
+                samples, request, keypoint_count
+            )
+            payload['kpt_shape'] = [keypoint_count, dimensions]
+            payload['keypoint_names'] = keypoint_names
+            payload['flip_idx'] = _pose_flip_indices(
+                keypoint_names,
+                infer_left_right_pairs(keypoint_names),
+            )
+    path.write_text(
+        yaml.safe_dump(payload, allow_unicode=True, sort_keys=False),
+        encoding='utf-8',
+    )
+
+
+def _write_test_manifest(path: Path, request: DatasetPreparationRequest,
+                         scan: DatasetScanResult,
+                         samples: Sequence[DatasetSample],
+                         training_batch: str):
+    records = []
+    for sample in samples:
+        records.append({
+            'stem': sample.stem,
+            'source_name': sample.source_name,
+            'image_path': str(sample.image_path),
+            'annotation_path': str(sample.annotation_path),
+            'label_path': str(sample.label_path) if sample.label_path else None,
+            'generated_empty_label': sample.label_path is None,
+        })
+    payload = {
+        'version': 1,
+        'created_at': _utc_now(),
+        'task_type': request.task_type,
+        'annotation_dir': request.annotation_dir,
+        'label_dir': request.label_dir,
+        'training_batch': training_batch,
+        'test_ratio': request.test_ratio,
+        'seed': request.seed,
+        'use_copy': request.use_copy,
+        'source_batches': list(request.source_names),
+        'summary': {'total': len(samples)},
         'records': records,
     }
     path.write_text(
