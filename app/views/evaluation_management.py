@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
+    QSplitter,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -122,9 +123,13 @@ class EvaluationManagementView(QWidget):
         layout.addWidget(self.tabs, 1)
 
     def _build_task_center_tab(self) -> QWidget:
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 8, 0, 0)
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.setObjectName('evaluationBodySplitter')
+
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 8, 0, 0)
+        left_layout.setSpacing(8)
 
         metrics = QHBoxLayout()
         self.metric_total = self._metric(metrics, '总任务')
@@ -132,12 +137,12 @@ class EvaluationManagementView(QWidget):
         self.metric_running = self._metric(metrics, '运行中')
         self.metric_done = self._metric(metrics, '已完成')
         self.metric_failed = self._metric(metrics, '失败')
-        layout.addLayout(metrics)
+        left_layout.addLayout(metrics)
 
-        self.lbl_empty = QLabel('暂无评估任务 — 点击下方「新建评估」选择模型与测试批次')
+        self.lbl_empty = QLabel('暂无评估任务 — 点击「新建评估」选择模型与测试批次')
         self.lbl_empty.setObjectName('evaluationEmpty')
         self.lbl_empty.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.lbl_empty)
+        left_layout.addWidget(self.lbl_empty)
 
         action_row = QHBoxLayout()
         btn_new = QPushButton('新建评估')
@@ -161,7 +166,7 @@ class EvaluationManagementView(QWidget):
         btn_refresh.clicked.connect(self.refresh_tasks)
         action_row.addWidget(btn_refresh)
         action_row.addStretch()
-        layout.addLayout(action_row)
+        left_layout.addLayout(action_row)
 
         self.task_table = QTableWidget(0, 6)
         self.task_table.setHorizontalHeaderLabels(
@@ -183,13 +188,53 @@ class EvaluationManagementView(QWidget):
         self.task_table.itemDoubleClicked.connect(
             lambda _item: self._show_detail()
         )
-        layout.addWidget(self.task_table, 1)
+        left_layout.addWidget(self.task_table, 1)
+        splitter.addWidget(left)
+        splitter.setStretchFactor(0, 1)
 
-        self.task_detail = QLabel('选择任务查看详情；双击在“结果”页打开。')
+        # 右侧：任务详情面板（左右排版，长驻可见）
+        right = QWidget()
+        right.setObjectName('evaluationPanel')
+        right.setMinimumWidth(300)
+        right.setMaximumWidth(420)
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(14, 12, 14, 12)
+        right_layout.setSpacing(10)
+
+        detail_title = QLabel('任务详情')
+        detail_title.setObjectName('trainingSectionTitle')
+        right_layout.addWidget(detail_title)
+
+        self.task_detail = QLabel('选择任务查看详情；双击可在“结果”页打开。')
         self.task_detail.setObjectName('duplicateSummary')
         self.task_detail.setWordWrap(True)
-        layout.addWidget(self.task_detail)
-        return widget
+        right_layout.addWidget(self.task_detail)
+
+        mini = QHBoxLayout()
+        self.detail_metric_map = self._metric(mini, '测试集 mAP50-95')
+        self.detail_metric_gap = self._metric(mini, '泛化差距')
+        right_layout.addLayout(mini)
+
+        right_buttons = QVBoxLayout()
+        self.btn_right_open = QPushButton('打开结果目录')
+        self.btn_right_open.setObjectName('fileOpBtn')
+        self.btn_right_open.clicked.connect(self._open_selected_result)
+        right_buttons.addWidget(self.btn_right_open)
+        self.btn_right_retry = QPushButton('重试任务')
+        self.btn_right_retry.setObjectName('successBtn')
+        self.btn_right_retry.clicked.connect(self._retry_selected)
+        right_buttons.addWidget(self.btn_right_retry)
+        right_buttons.addStretch()
+        right_layout.addLayout(right_buttons)
+
+        self.lbl_right_hint = QLabel('双击任务列表可在“结果”页查看完整指标。')
+        self.lbl_right_hint.setObjectName('evaluationSectionHint')
+        right_layout.addWidget(self.lbl_right_hint)
+        right_layout.addStretch()
+        splitter.addWidget(right)
+
+        splitter.setSizes([690, 330])
+        return splitter
 
     def _build_new_tab(self) -> QWidget:
         widget = QWidget()
@@ -200,79 +245,95 @@ class EvaluationManagementView(QWidget):
         section.setObjectName('trainingSectionTitle')
         layout.addWidget(section)
 
-        form = QGridLayout()
-        form.setHorizontalSpacing(10)
-        form.setVerticalSpacing(10)
+        columns = QHBoxLayout()
+        columns.setSpacing(28)
 
-        form.addWidget(QLabel('数据根目录'), 0, 0)
+        # 左列：数据来源
+        left_form = QGridLayout()
+        left_form.setHorizontalSpacing(10)
+        left_form.setVerticalSpacing(10)
+
+        left_form.addWidget(QLabel('数据根目录'), 0, 0)
         self.edit_root = QLineEdit(stored_dataset_path())
         self.edit_root.setObjectName('trainingEdit')
         self.edit_root.setPlaceholderText('测试批次所在的项目根目录')
-        form.addWidget(self.edit_root, 0, 1, 1, 3)
+        left_form.addWidget(self.edit_root, 0, 1, 1, 3)
         btn_root = QPushButton('选择')
         btn_root.setObjectName('fileOpBtn')
         btn_root.clicked.connect(self._pick_root)
-        form.addWidget(btn_root, 0, 4)
+        left_form.addWidget(btn_root, 0, 4)
 
-        form.addWidget(QLabel('测试批次'), 1, 0)
+        left_form.addWidget(QLabel('测试批次'), 1, 0)
         self.combo_test = QComboBox()
         self.combo_test.setObjectName('trainingCombo')
-        form.addWidget(self.combo_test, 1, 1, 1, 3)
+        left_form.addWidget(self.combo_test, 1, 1, 1, 3)
         btn_scan = QPushButton('刷新测试批次')
         btn_scan.setObjectName('fileOpBtn')
         btn_scan.clicked.connect(self.refresh_test_batches)
-        form.addWidget(btn_scan, 1, 4)
+        left_form.addWidget(btn_scan, 1, 4)
 
-        form.addWidget(QLabel('评估模型'), 2, 0)
+        left_form.addWidget(QLabel('评估模型'), 2, 0)
         self.combo_model = QComboBox()
         self.combo_model.setObjectName('trainingCombo')
         self.combo_model.setEditable(True)
-        form.addWidget(self.combo_model, 2, 1, 1, 3)
+        left_form.addWidget(self.combo_model, 2, 1, 1, 3)
         btn_model = QPushButton('浏览 .pt')
         btn_model.setObjectName('fileOpBtn')
         btn_model.clicked.connect(self._browse_model)
-        form.addWidget(btn_model, 2, 4)
+        left_form.addWidget(btn_model, 2, 4)
 
-        form.addWidget(QLabel('模型名称'), 3, 0)
+        left_form.addWidget(QLabel('模型名称'), 3, 0)
         self.edit_model_label = QLineEdit()
         self.edit_model_label.setObjectName('trainingEdit')
         self.edit_model_label.setPlaceholderText('显示名，如 2026-08-25-pose-2')
-        form.addWidget(self.edit_model_label, 3, 1, 1, 4)
+        left_form.addWidget(self.edit_model_label, 3, 1, 1, 4)
+        left_form.setColumnStretch(1, 1)
+        columns.addLayout(left_form, 1)
 
-        form.addWidget(QLabel('imgsz'), 4, 0)
+        # 右列：评估参数（左右排版）
+        right_form = QGridLayout()
+        right_form.setHorizontalSpacing(10)
+        right_form.setVerticalSpacing(10)
+
+        right_form.addWidget(QLabel('imgsz'), 0, 0)
         self.spin_imgsz = QSpinBox()
         self.spin_imgsz.setObjectName('trainingSpin')
         self.spin_imgsz.setRange(160, 2560)
         self.spin_imgsz.setSingleStep(32)
         self.spin_imgsz.setValue(640)
-        form.addWidget(self.spin_imgsz, 4, 1)
-        form.addWidget(QLabel('batch'), 4, 2)
+        right_form.addWidget(self.spin_imgsz, 0, 1)
+        right_form.addWidget(QLabel('batch'), 0, 2)
         self.spin_batch = QSpinBox()
         self.spin_batch.setObjectName('trainingSpin')
         self.spin_batch.setRange(1, 256)
         self.spin_batch.setValue(16)
-        form.addWidget(self.spin_batch, 4, 3)
-        form.addWidget(QLabel('device'), 5, 0)
+        right_form.addWidget(self.spin_batch, 0, 3)
+
+        right_form.addWidget(QLabel('device'), 1, 0)
         self.edit_device = QLineEdit('0')
         self.edit_device.setObjectName('trainingEdit')
         self.edit_device.setToolTip('如 0、0,1 或 cpu')
-        form.addWidget(self.edit_device, 5, 1)
-        form.addWidget(QLabel('conf'), 5, 2)
+        right_form.addWidget(self.edit_device, 1, 1)
+        right_form.addWidget(QLabel('conf'), 1, 2)
         self.spin_conf = QDoubleSpinBox()
         self.spin_conf.setObjectName('trainingSpin')
         self.spin_conf.setRange(0.0001, 1.0)
         self.spin_conf.setDecimals(4)
         self.spin_conf.setValue(0.001)
-        form.addWidget(self.spin_conf, 5, 3)
-        form.addWidget(QLabel('iou'), 6, 0)
+        right_form.addWidget(self.spin_conf, 1, 3)
+
+        right_form.addWidget(QLabel('iou'), 2, 0)
         self.spin_iou = QDoubleSpinBox()
         self.spin_iou.setObjectName('trainingSpin')
         self.spin_iou.setRange(0.1, 1.0)
         self.spin_iou.setDecimals(3)
         self.spin_iou.setValue(0.6)
-        form.addWidget(self.spin_iou, 6, 1)
+        right_form.addWidget(self.spin_iou, 2, 1, 1, 3)
+        right_form.setColumnStretch(1, 1)
+        right_form.setColumnStretch(3, 1)
+        columns.addLayout(right_form, 1)
 
-        layout.addLayout(form)
+        layout.addLayout(columns)
 
         btn_row = QHBoxLayout()
         btn_create = QPushButton('创建评估任务')
@@ -711,6 +772,15 @@ class EvaluationManagementView(QWidget):
         if record.error:
             detail += f'\n错误: {record.error}'
         self.task_detail.setText(detail)
+        metrics = record.metrics
+        self.detail_metric_map.setText(
+            '-' if metrics.get('mAP50-95') is None
+            else f"{metrics['mAP50-95']:.4f}"
+        )
+        self.detail_metric_gap.setText(
+            '-' if metrics.get('gap') is None
+            else f"{metrics['gap']:+.4f}"
+        )
         self._load_result(record)
 
     def _load_result(self, record: EvaluationTaskRecord):

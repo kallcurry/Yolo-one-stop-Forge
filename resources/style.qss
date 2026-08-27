@@ -757,6 +757,12 @@ QLabel#evaluationSectionHint {
     font-size: 12px;
 }
 
+QWidget#evaluationPanel {
+    background-color: rgba(14, 35, 48, 120);
+    border: 1px solid rgba(91, 153, 184, 80);
+    border-radius: 12px;
+}
+
 QSplitter::handle {
     background-color: #263241;
 }
