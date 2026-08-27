@@ -21,6 +21,11 @@ training/tasks/
 training/task_registry.sqlite3*
 training_runs/
 
+# --- Evaluation runs and task state ---
+evaluation/tasks/
+evaluation/runs/
+evaluation/task_registry.sqlite3*
+
 # --- Generated reports and build outputs ---
 reports/
 dist/

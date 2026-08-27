@@ -155,6 +155,13 @@ class EvaluationTaskRegistry:
         ).fetchall()
         return [self._record_from_row(row) for row in rows]
 
+    def delete(self, task_id: str) -> bool:
+        cursor = self._conn.execute(
+            'DELETE FROM evaluation_tasks WHERE task_id = ?', (task_id,)
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
     def recover_interrupted(self) -> int:
         """Mark tasks left 'running' after an app crash as 'interrupted'."""
         cursor = self._conn.execute(

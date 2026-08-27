@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import QApplication, QFileDialog, QVBoxLayout, QWidget
 from app.views.main_window import MainWindow
 from app.views.model_management import ModelManagementView
 from app.views.training_management import TrainingManagementView
+from app.views.evaluation_management import EvaluationManagementView
 from app.views.dir_tree import DirTreePanel
 from app.views.image_viewer import ImageViewer
 from app.views.detail_panel import DetailPanel
@@ -47,6 +48,7 @@ def main():
     file_list = FileListPanel()
     model_manager = ModelManagementView()
     training_manager = TrainingManagementView()
+    evaluation_manager = EvaluationManagementView()
 
     # Embed file list into detail panel (right side)
     detail.set_file_list(file_list)
@@ -63,6 +65,7 @@ def main():
     win.set_detail_panel(right_panel)
     win.set_model_manager(model_manager)
     win.set_training_manager(training_manager)
+    win.set_evaluation_manager(evaluation_manager)
 
     # Set default splitter ratios: tree 20%, image 55%, detail 25%
     win.top_splitter.setSizes([280, 770, 350])

@@ -329,7 +329,7 @@ class MainWindow(QMainWindow):
             ('data', '数据管理', '数据管理', True),
             ('model', '模型管理', '模型管理', True),
             ('train', '训练中心', '训练中心', True),
-            ('eval', '评估中心', '评估中心', False),
+            ('eval', '评估中心', '评估中心', True),
         ]
         for idx, (module_id, label, tooltip, enabled) in enumerate(modules):
             btn = QPushButton(label)
@@ -465,6 +465,17 @@ class MainWindow(QMainWindow):
         self._module_pages['train'] = widget
         self.workspace_stack.addWidget(widget)
         if self._current_module == 'train':
+            self.workspace_stack.setCurrentWidget(widget)
+
+    def set_evaluation_manager(self, widget: QWidget):
+        """Install the evaluation workspace as a peer platform module."""
+        previous = self._module_pages.get('eval')
+        if previous is not None:
+            self.workspace_stack.removeWidget(previous)
+            previous.setParent(None)
+        self._module_pages['eval'] = widget
+        self.workspace_stack.addWidget(widget)
+        if self._current_module == 'eval':
             self.workspace_stack.setCurrentWidget(widget)
 
     # ---- Menus ----
