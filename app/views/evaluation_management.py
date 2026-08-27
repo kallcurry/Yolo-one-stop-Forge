@@ -9,6 +9,7 @@ from pathlib import Path
 
 from PyQt5.QtCore import QProcess, Qt, QTimer, QEvent
 from PyQt5.QtWidgets import (
+    QButtonGroup,
     QAbstractItemView,
     QComboBox,
     QDoubleSpinBox,
@@ -27,7 +28,7 @@ from PyQt5.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QSplitter,
-    QTabWidget,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -47,6 +48,11 @@ from app.views.tool_dialog import stored_dataset_path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EVAL_ROOT = PROJECT_ROOT / 'evaluation'
+
+EVALUATION_PAGE_TASKS = 0
+EVALUATION_PAGE_NEW = 1
+EVALUATION_PAGE_MONITOR = 2
+EVALUATION_PAGE_RESULT = 3
 
 STATUS_TONES = {
     'queued': '#FFD07A',
@@ -107,24 +113,115 @@ class EvaluationManagementView(QWidget):
     def _build_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 14, 18, 14)
-        layout.setSpacing(10)
+        layout.setSpacing(12)
 
-        header = QHBoxLayout()
+        header = QWidget()
+        header.setObjectName('trainingHeader')
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(4, 2, 4, 2)
+        header_layout.setSpacing(2)
+        eyebrow = QLabel('EVALUATION ORCHESTRATOR')
+        eyebrow.setObjectName('trainingEyebrow')
+        header_layout.addWidget(eyebrow)
+        title_row = QHBoxLayout()
         title = QLabel('评估中心')
         title.setObjectName('trainingTitle')
-        header.addWidget(title)
+        title_row.addWidget(title)
         hint = QLabel('模型 × 测试批次 → 客观度量 → 结果回写模型卡片')
         hint.setObjectName('duplicateScope')
-        header.addWidget(hint)
-        header.addStretch()
-        layout.addLayout(header)
+        title_row.addWidget(hint)
+        title_row.addStretch()
+        btn_new_header = QPushButton('新建评估')
+        btn_new_header.setObjectName('primaryBtn')
+        btn_new_header.clicked.connect(
+            lambda: self._show_page(EVALUATION_PAGE_NEW)
+        )
+        title_row.addWidget(btn_new_header)
+        self.header_badge = QLabel('LOCAL · SINGLE TASK')
+        self.header_badge.setObjectName('trainingEnvironmentBadge')
+        title_row.addWidget(self.header_badge)
+        header_layout.addLayout(title_row)
+        layout.addWidget(header)
 
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_task_center_tab(), '任务中心')
-        self.tabs.addTab(self._build_new_tab(), '新建评估')
-        self.tabs.addTab(self._build_monitor_tab(), '监控')
-        self.tabs.addTab(self._build_result_tab(), '结果')
-        layout.addWidget(self.tabs, 1)
+        body = QSplitter(Qt.Horizontal)
+        body.setObjectName('evaluationBodySplitter')
+        body.setChildrenCollapsible(False)
+        body.setHandleWidth(7)
+
+        rail = QWidget()
+        rail.setObjectName('trainingStepRail')
+        rail.setMinimumWidth(190)
+        rail.setMaximumWidth(232)
+        rail_layout = QVBoxLayout(rail)
+        rail_layout.setContentsMargins(12, 16, 12, 14)
+        rail_layout.setSpacing(7)
+        rail_title = QLabel('评估工作台')
+        rail_title.setObjectName('trainingRailTitle')
+        rail_layout.addWidget(rail_title)
+
+        self.step_group = QButtonGroup(self)
+        self.step_group.setExclusive(True)
+        self.btn_task_center = QPushButton('任务中心')
+        self.btn_task_center.setObjectName('trainingTaskCenterBtn')
+        self.btn_task_center.setCheckable(True)
+        self.btn_task_center.setMinimumHeight(44)
+        self.btn_task_center.clicked.connect(
+            lambda _checked=False: self._show_page(EVALUATION_PAGE_TASKS)
+        )
+        self.step_group.addButton(self.btn_task_center, EVALUATION_PAGE_TASKS)
+        rail_layout.addWidget(self.btn_task_center)
+
+        flow_caption = QLabel('评估流程')
+        flow_caption.setObjectName('trainingRailCaption')
+        rail_layout.addWidget(flow_caption)
+        self.step_buttons = []
+        for number, label, page in (
+            ('01', '新建评估', EVALUATION_PAGE_NEW),
+            ('02', '监控', EVALUATION_PAGE_MONITOR),
+            ('03', '结果', EVALUATION_PAGE_RESULT),
+        ):
+            button = QPushButton(f'{number}   {label}')
+            button.setObjectName('trainingStepBtn')
+            button.setCheckable(True)
+            button.setMinimumHeight(42)
+            button.clicked.connect(
+                lambda _checked=False, target=page: self._show_page(target)
+            )
+            self.step_group.addButton(button, page)
+            self.step_buttons.append(button)
+            rail_layout.addWidget(button)
+
+        rail_hint = QLabel('单任务顺序执行\n完成自动接续队列')
+        rail_hint.setObjectName('evaluationSectionHint')
+        rail_layout.addWidget(rail_hint)
+        rail_layout.addStretch()
+        text = QLabel('本地运行 · 测试批次\n只读评估 · 结果可追溯')
+        text.setObjectName('duplicateMetricCaption')
+        text.setWordWrap(True)
+        rail_layout.addWidget(text)
+        rail_layout.addSpacing(6)
+        body.addWidget(rail)
+
+        self.pages = [
+            self._build_task_center_tab(),
+            self._build_new_tab(),
+            self._build_monitor_tab(),
+            self._build_result_tab(),
+        ]
+        self.page_stack = QStackedWidget()
+        for page in self.pages:
+            self.page_stack.addWidget(page)
+        body.addWidget(self.page_stack)
+        body.setStretchFactor(1, 1)
+        layout.addWidget(body, 1)
+
+        self._show_page(EVALUATION_PAGE_TASKS)
+
+    def _show_page(self, page: int):
+        self.page_stack.setCurrentWidget(self.pages[page])
+        for button in (self.btn_task_center, *self.step_buttons):
+            data = self.step_group.id(button)
+            button.setChecked(data == page)
 
     def _build_task_center_tab(self) -> QWidget:
         widget = QWidget()
@@ -161,7 +258,7 @@ class EvaluationManagementView(QWidget):
         toolbar.addStretch()
         btn_new = QPushButton('新建评估')
         btn_new.setObjectName('primaryBtn')
-        btn_new.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
+        btn_new.clicked.connect(lambda: self._show_page(EVALUATION_PAGE_NEW))
         toolbar.addWidget(btn_new)
         btn_refresh = QPushButton('刷新')
         btn_refresh.setObjectName('fileOpBtn')
@@ -489,7 +586,7 @@ class EvaluationManagementView(QWidget):
         self.refresh_model_choices(keep_current=resolved)
         self.combo_model.setEditText(resolved)
         self.edit_model_label.setText(str(model_label))
-        self.tabs.setCurrentIndex(1)
+        self._show_page(EVALUATION_PAGE_NEW)
         self.new_status.setText('已预选模型，请选择测试批次后创建评估任务。')
 
     def refresh_model_choices(self, keep_current: str = ''):
@@ -610,7 +707,7 @@ class EvaluationManagementView(QWidget):
             log_path=str(log_path),
         )
         self.refresh_tasks()
-        self.tabs.setCurrentIndex(0)
+        self._show_page(EVALUATION_PAGE_TASKS)
         self._resume_queued()
 
     def _resume_queued(self):
@@ -862,7 +959,7 @@ class EvaluationManagementView(QWidget):
     def _open_result(self, record: EvaluationTaskRecord):
         self._selected_task = record
         self._load_result(record)
-        self.tabs.setCurrentIndex(3)
+        self._show_page(EVALUATION_PAGE_RESULT)
 
     def _load_result(self, record: EvaluationTaskRecord):
         self.result_title.setText(
