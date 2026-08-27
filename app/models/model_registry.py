@@ -160,9 +160,46 @@ class ModelRecord:
     data_sources: tuple[DatasetSource, ...] = ()
     result_assets: tuple[str, ...] = ()
     training_args: tuple[tuple[str, str], ...] = ()
+    evaluation: dict | None = None
 
 
-def scan_model_repository(directory: str | Path) -> list[ModelRecord]:
+def find_evaluation_for_run(run_dir: Path, model_label: str,
+                            eval_root: Path | None = None) -> dict | None:
+    """Locate the newest evaluation_result.json belonging to this model run."""
+    root = eval_root or (
+        Path(__file__).resolve().parents[2] / 'evaluation' / 'runs'
+    )
+    if not root.is_dir():
+        return None
+    weights_dir = run_dir / 'weights'
+    weight_paths = set()
+    if weights_dir.is_dir():
+        weight_paths.update(
+            str(path.resolve())
+            for path in weights_dir.iterdir()
+            if path.is_file()
+        )
+    best: dict | None = None
+    for result in sorted(root.rglob('evaluation_result.json'), reverse=True):
+        try:
+            payload = json.loads(result.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if (
+            str(payload.get('model_path') or '') in weight_paths
+            or str(payload.get('model_label') or '') == model_label
+        ):
+            if best is None or str(payload.get('created_at') or '') > str(
+                best.get('created_at') or ''
+            ):
+                best = payload
+    return best
+
+
+def scan_model_repository(directory: str | Path,
+                          eval_root: str | Path | None = None) -> list[ModelRecord]:
     """Discover one model record per Ultralytics run directory."""
     root = Path(directory).expanduser()
     if not root.is_dir():
@@ -175,13 +212,14 @@ def scan_model_repository(directory: str | Path) -> list[ModelRecord]:
             run_dirs.add(weights_dir.parent.resolve())
 
     records = [
-        _parse_training_run(run_dir, root)
+        _parse_training_run(run_dir, root, eval_root)
         for run_dir in sorted(run_dirs)
     ]
     return [record for record in records if record is not None]
 
 
-def _parse_training_run(run_dir: Path, repository_root: Path) -> ModelRecord | None:
+def _parse_training_run(run_dir: Path, repository_root: Path,
+                        eval_root: str | Path | None = None) -> ModelRecord | None:
     args_path = run_dir / 'args.yaml'
     args = _load_yaml(args_path) if args_path.is_file() else {}
     weights_dir = run_dir / 'weights'
@@ -230,6 +268,10 @@ def _parse_training_run(run_dir: Path, repository_root: Path) -> ModelRecord | N
 
     planned_epochs = _as_int(args.get('epochs'))
     status = '完整' if args and metrics and artifacts else '部分'
+    evaluation = find_evaluation_for_run(
+        run_dir.resolve(), run_dir.name,
+        Path(eval_root) if eval_root else None,
+    )
     return ModelRecord(
         model_id=str(run_dir.resolve()),
         name=run_dir.name,
@@ -264,6 +306,7 @@ def _parse_training_run(run_dir: Path, repository_root: Path) -> ModelRecord | N
             (str(key), _config_value_text(value))
             for key, value in args.items()
         ),
+        evaluation=evaluation,
     )
 
 

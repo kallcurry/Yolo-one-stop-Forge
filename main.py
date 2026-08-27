@@ -73,8 +73,9 @@ def main():
     # Create controller — wires everything
     ctrl = AppController(
         win, dir_tree, viewer, detail, file_list, model_manager,
-        training_manager,
+        training_manager, evaluation_manager,
     )
+    model_manager.evaluate_requested.connect(ctrl.open_evaluation)
 
     # Annotation mode: sync button + A-key shortcut ↔ viewer
     def _on_annotation_cycle():

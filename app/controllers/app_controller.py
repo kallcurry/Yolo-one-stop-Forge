@@ -65,7 +65,7 @@ class AppController(QObject):
 
     def __init__(self, main_window, dir_tree, image_viewer,
                  detail_panel, file_list_panel, model_manager=None,
-                 training_manager=None):
+                 training_manager=None, evaluation_manager=None):
         super().__init__()
         self._win = main_window
         self._tree = dir_tree
@@ -74,6 +74,7 @@ class AppController(QObject):
         self._file_list = file_list_panel
         self._model_manager = model_manager
         self._training_manager = training_manager
+        self._evaluation_manager = evaluation_manager
 
         self._images: list[Path] = []
         self._current_index: int = -1
@@ -286,6 +287,15 @@ class AppController(QObject):
         self._win.select_module('model')
         self._win.status_bar.showMessage(
             f'已打开训练结果: {Path(run_path).name}', 4000
+        )
+
+    def open_evaluation(self, model_path: str, model_label: str):
+        """Prefill the evaluation center for a model and switch module."""
+        if self._evaluation_manager is not None:
+            self._evaluation_manager.prefill_model(model_path, model_label)
+        self._win.select_module('eval')
+        self._win.status_bar.showMessage(
+            f'已为 {model_label} 打开评估中心', 4000
         )
 
     # Actions (public, connected from MainWindow)

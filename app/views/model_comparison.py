@@ -684,9 +684,21 @@ class ModelComparisonPage(QWidget):
                 f'{source.dataset_name}:{source.batch_name}' for source in sources
             )
 
+        def evaluation_value(record, key):
+            evaluation = record.evaluation or {}
+            if 'test_batch' not in evaluation:
+                return '-'
+            if key == 'map':
+                return _format_value(
+                    (evaluation.get('metrics') or {}).get('mAP50-95')
+                )
+            return _format_value(evaluation.get('generalization_gap'))
+
         rows = (
             ('最佳指标', lambda record: metric_value(record, 'best')),
             ('最终指标', lambda record: metric_value(record, 'last')),
+            ('测试集 mAP50-95', lambda record: evaluation_value(record, 'map')),
+            ('泛化差距（测试−训练）', lambda record: evaluation_value(record, 'gap')),
             ('最佳轮次', lambda record: metric_value(record, 'epoch')),
             ('训练轮次', lambda record: f'{record.actual_epochs}/{record.planned_epochs or "-"}'),
             ('训练时长', lambda record: _format_duration(record.training_seconds)),

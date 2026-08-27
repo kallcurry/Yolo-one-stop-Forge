@@ -346,6 +346,15 @@ class EvaluationManagementView(QWidget):
             'test_data 下没有带 dataset.yaml 的测试批次（旧“默认测试集”请先生成新批次）。'
         )
 
+    def prefill_model(self, model_path: str, model_label: str):
+        """Prefill the new-evaluation form from a model card (phase 3 link)."""
+        resolved = str(Path(str(model_path)).expanduser().resolve())
+        self.refresh_model_choices(keep_current=resolved)
+        self.combo_model.setEditText(resolved)
+        self.edit_model_label.setText(str(model_label))
+        self.tabs.setCurrentIndex(1)
+        self.new_status.setText('已预选模型，请选择测试批次后创建评估任务。')
+
     def refresh_model_choices(self, keep_current: str = ''):
         current = keep_current or self.combo_model.currentText()
         self.combo_model.clear()

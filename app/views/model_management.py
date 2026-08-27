@@ -373,6 +373,7 @@ class ModelManagementView(QWidget):
     model_selected = pyqtSignal(object)
     dataset_source_requested = pyqtSignal(object, object)
     directory_changed = pyqtSignal(str)
+    evaluate_requested = pyqtSignal(str, str)
 
     def __init__(self, parent=None, load_saved_directory: bool = True):
         super().__init__(parent)
@@ -639,6 +640,15 @@ class ModelManagementView(QWidget):
         self.lbl_detail_status = QLabel('就绪')
         self.lbl_detail_status.setObjectName('modelDetailStatus')
         heading.addWidget(self.lbl_detail_status)
+        self.btn_go_eval = QPushButton('去评估')
+        self.btn_go_eval.setObjectName('primaryBtn')
+        self.btn_go_eval.setToolTip('在评估中心为该模型选择测试批次并运行评估')
+        self.btn_go_eval.clicked.connect(self._emit_evaluate)
+        heading.addWidget(self.btn_go_eval)
+        self.lbl_evaluation = QLabel('')
+        self.lbl_evaluation.setObjectName('duplicateScope')
+        self.lbl_evaluation.setWordWrap(True)
+        heading.addWidget(self.lbl_evaluation)
         layout.addLayout(heading)
 
         line = QFrame()
@@ -1254,6 +1264,23 @@ class ModelManagementView(QWidget):
         else:
             self.show_library()
 
+    def _emit_evaluate(self):
+        record = getattr(self, '_current_record', None)
+        if record is None:
+            return
+        weight_path = ''
+        for artifact in record.artifacts:
+            if str(artifact.path).endswith('.pt'):
+                weight_path = str(artifact.path)
+                break
+        if not weight_path:
+            candidates = [
+                str(path) for path in Path(record.path).rglob('*.pt')
+                if path.is_file()
+            ]
+            weight_path = candidates[-1] if candidates else record.path
+        self.evaluate_requested.emit(weight_path, record.name)
+
     def _show_model_details(self, record: ModelRecord, origin: str | None = None):
         if origin in {'library', 'comparison'}:
             self._detail_origin = origin
@@ -1268,6 +1295,16 @@ class ModelManagementView(QWidget):
             f'{record.file_format} / {record.precision}\n{record.input_size}'
         )
         self.lbl_detail_status.setText('DEMO' if record.is_demo else record.status)
+        evaluation = record.evaluation or {}
+        eval_metrics = evaluation.get('metrics') or {}
+        if 'test_batch' in evaluation:
+            self.lbl_evaluation.setText(
+                f'测试评估 [{evaluation.get("test_batch", "")}] | '
+                f"mAP50-95 {_format_metric(eval_metrics.get('mAP50-95'))} | "
+                f"泛化差距 {_format_metric(evaluation.get('generalization_gap'))}"
+            )
+        else:
+            self.lbl_evaluation.setText('尚未评估 — 点击“去评估”选择测试批次')
         self._detail_values['project'].setText(record.project_name)
         self._detail_values['architecture'].setText(record.architecture)
         self._detail_values['modified'].setText(record.modified_at)
