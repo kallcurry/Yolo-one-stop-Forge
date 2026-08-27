@@ -75,6 +75,7 @@ def extract_summary(results_dict: dict, task_type: str) -> dict[str, float | Non
     return {
         'mAP50-95': _pick(results_dict, family, 'mAP50-95'),
         'mAP50': _pick(results_dict, family, 'mAP50'),
+        'mAP75': _pick(results_dict, family, 'mAP75'),
         'precision': _pick(results_dict, family, 'precision'),
         'recall': _pick(results_dict, family, 'recall'),
     }
@@ -159,6 +160,7 @@ def read_train_metrics(training_run_dir: str | None,
     return {
         'mAP50-95': _last_value('mAP50-95'),
         'mAP50': _last_value('mAP50'),
+        'mAP75': _last_value('mAP75'),
     }
 
 

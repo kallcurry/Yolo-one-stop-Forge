@@ -1013,12 +1013,18 @@ class EvaluationManagementView(QWidget):
             self.result_title.setText(f'结果解析失败：{exc}')
             return
         metrics = payload.get('metrics') or {}
+        train_metrics = payload.get('train_metrics') or {}
+        latency = payload.get('latency') or {}
+        latency_ms = latency.get('ms_per_image')
         cards = [
             ('mAP50-95', metrics.get('mAP50-95')),
             ('mAP50', metrics.get('mAP50')),
+            ('mAP75', metrics.get('mAP75')),
             ('Precision', metrics.get('precision')),
             ('Recall', metrics.get('recall')),
+            ('训练 mAP50-95', train_metrics.get('mAP50-95')),
             ('泛化差距', payload.get('generalization_gap')),
+            ('时延 ms', latency_ms),
         ]
         for index, (name, value) in enumerate(cards):
             box = QWidget()
@@ -1028,12 +1034,14 @@ class EvaluationManagementView(QWidget):
             caption = QLabel(name)
             caption.setObjectName('trainingMetricCaption')
             value_label = QLabel(
-                '-' if value is None else f'{value:.4f}'
+                '-' if value is None
+                else (f'{value:.4f}' if isinstance(value, (int, float)) else str(value))
             )
             value_label.setObjectName('trainingMetricValue')
             box_layout.addWidget(caption)
             box_layout.addWidget(value_label)
-            self.metric_cards.addWidget(box, 0, index)
+            row, column = divmod(index, 4)
+            self.metric_cards.addWidget(box, row, column)
         per_class = payload.get('per_class') or {}
         self.result_table.setRowCount(len(per_class))
         for row, (class_name, values) in enumerate(sorted(per_class.items())):
