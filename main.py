@@ -35,7 +35,29 @@ def _load_stylesheet() -> str:
     return ''
 
 
+def _install_excepthook():
+    """Unhandled exceptions must not abort the Qt app with a core dump."""
+    import traceback
+
+    def _hook(exc_type, exc_value, exc_tb):
+        traceback.print_exc()
+        try:
+            from PyQt5.QtWidgets import QApplication, QMessageBox
+            message = (
+                f'发生未处理错误，应用将继续运行。\n\n'
+                f'{exc_type.__name__}: {exc_value}\n\n'
+                f'详细信息见终端日志。'
+            )
+            if QApplication.instance() is not None:
+                QMessageBox.critical(None, '未处理错误', message)
+        except Exception:  # noqa: BLE001
+            pass
+
+    sys.excepthook = _hook
+
+
 def main():
+    _install_excepthook()
     app = QApplication(sys.argv)
     app.setApplicationName('ImageFileManager')
     app.setStyleSheet(_load_stylesheet())

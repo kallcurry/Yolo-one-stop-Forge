@@ -704,20 +704,32 @@ class EvaluationManagementView(QWidget):
             problems = job.validate()
             if problems:
                 raise ValueError('；'.join(problems))
-        except (ValueError, OSError) as exc:
-            QMessageBox.warning(self, '无法创建', str(exc))
+        except Exception as exc:  # noqa: BLE001 - 任何异常都不能让 UI 崩溃
+            QMessageBox.warning(
+                self, '无法创建',
+                f'创建评估任务失败（{type(exc).__name__}）：{exc}\n\n'
+                '请检查 evaluation/ 目录是否可写，或稍后重试。',
+            )
             return
 
         task_dir = EVAL_ROOT / 'tasks' / job.job_id
-        task_dir.mkdir(parents=True, exist_ok=True)
-        spec_path = save_evaluation_job(job, task_dir / 'evaluation_request.json')
-        log_path = task_dir / 'evaluation.log'
-        self._registry.create(
-            job.to_dict(),
-            task_dir=str(task_dir),
-            output_dir=str(EVAL_ROOT / 'runs' / job.run_name),
-            log_path=str(log_path),
-        )
+        try:
+            task_dir.mkdir(parents=True, exist_ok=True)
+            spec_path = save_evaluation_job(job, task_dir / 'evaluation_request.json')
+            log_path = task_dir / 'evaluation.log'
+            self._registry.create(
+                job.to_dict(),
+                task_dir=str(task_dir),
+                output_dir=str(EVAL_ROOT / 'runs' / job.run_name),
+                log_path=str(log_path),
+            )
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(
+                self, '创建失败',
+                f'任务已就绪但写入注册表失败（{type(exc).__name__}）：{exc}\n\n'
+                '请检查 evaluation/ 目录与 task_registry.sqlite3 的写权限。',
+            )
+            return
         self.refresh_tasks()
         self._show_page(EVALUATION_PAGE_TASKS)
         self._resume_queued()

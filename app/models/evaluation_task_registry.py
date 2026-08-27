@@ -44,25 +44,31 @@ class EvaluationTaskRegistry:
     def __init__(self, path: str | Path):
         self.path = Path(path).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
-        self._conn.execute('PRAGMA busy_timeout=5000')
-        self._conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS evaluation_tasks (
-                task_id TEXT PRIMARY KEY,
-                status TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                spec TEXT NOT NULL,
-                output_dir TEXT NOT NULL DEFAULT '',
-                log_path TEXT NOT NULL DEFAULT '',
-                task_dir TEXT NOT NULL DEFAULT '',
-                error TEXT NOT NULL DEFAULT '',
-                summary TEXT NOT NULL DEFAULT ''
+        try:
+            self._conn = sqlite3.connect(str(self.path), check_same_thread=False)
+            self._conn.execute('PRAGMA busy_timeout=5000')
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS evaluation_tasks (
+                    task_id TEXT PRIMARY KEY,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    spec TEXT NOT NULL,
+                    output_dir TEXT NOT NULL DEFAULT '',
+                    log_path TEXT NOT NULL DEFAULT '',
+                    task_dir TEXT NOT NULL DEFAULT '',
+                    error TEXT NOT NULL DEFAULT '',
+                    summary TEXT NOT NULL DEFAULT ''
+                )
+                """
             )
-            """
-        )
-        self._conn.commit()
+            self._conn.commit()
+        except sqlite3.OperationalError as exc:
+            raise RuntimeError(
+                f'评估任务注册表不可写: {self.path} ({exc})。'
+                '请检查目录权限后重试。'
+            ) from exc
 
     def close(self):
         try:
