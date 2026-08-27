@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+"""Image File Manager — PyQt5 application entry point."""
+
+import os
+import sys
+
+# Make sure the project root is on sys.path
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, PROJECT_ROOT)
+
+from PyQt5.QtWidgets import QApplication, QFileDialog, QVBoxLayout, QWidget
+
+from app.views.main_window import MainWindow
+from app.views.model_management import ModelManagementView
+from app.views.training_management import TrainingManagementView
+from app.views.dir_tree import DirTreePanel
+from app.views.image_viewer import ImageViewer
+from app.views.detail_panel import DetailPanel
+from app.views.file_list_panel import FileListPanel
+from app.views.ui_effects import fade_in_window
+from app.controllers.app_controller import AppController
+from app.tools import (
+    dataset_stats, train_val_stats, find_keypoint,
+    merge_and_split, swap_labels, file_count, file_match,
+    check_duplicates,
+)
+
+
+def _load_stylesheet() -> str:
+    path = os.path.join(PROJECT_ROOT, 'resources', 'style.qss')
+    if os.path.isfile(path):
+        with open(path, 'r', encoding='utf-8') as f:
+            return f.read()
+    return ''
+
+
+def main():
+    app = QApplication(sys.argv)
+    app.setApplicationName('ImageFileManager')
+    app.setStyleSheet(_load_stylesheet())
+
+    # Create views
+    win = MainWindow()
+    dir_tree = DirTreePanel()
+    viewer = ImageViewer()
+    detail = DetailPanel()
+    file_list = FileListPanel()
+    model_manager = ModelManagementView()
+    training_manager = TrainingManagementView()
+
+    # Embed file list into detail panel (right side)
+    detail.set_file_list(file_list)
+
+    # Wrap detail + file list as right panel
+    right_panel = QWidget()
+    right_layout = QVBoxLayout(right_panel)
+    right_layout.setContentsMargins(0, 0, 0, 0)
+    right_layout.addWidget(detail)
+
+    # Insert panels into main window
+    win.set_dir_tree(dir_tree)
+    win.set_image_viewer(viewer)
+    win.set_detail_panel(right_panel)
+    win.set_model_manager(model_manager)
+    win.set_training_manager(training_manager)
+
+    # Set default splitter ratios: tree 20%, image 55%, detail 25%
+    win.top_splitter.setSizes([280, 770, 350])
+
+    # Create controller — wires everything
+    ctrl = AppController(
+        win, dir_tree, viewer, detail, file_list, model_manager,
+        training_manager,
+    )
+
+    # Annotation mode: sync button + A-key shortcut ↔ viewer
+    def _on_annotation_cycle():
+        viewer.cycle_annotation_mode()
+        win.status_bar.showMessage(
+            f'标注显示: {viewer.annotation_mode_name()}', 2000
+        )
+
+    viewer.annotation_mode_changed.connect(
+        lambda _mode: win.set_annotation_btn_text(viewer.annotation_mode_name())
+    )
+    viewer.skeleton_visibility_changed.connect(win.set_skeleton_btn_text)
+    win.btn_annotation.clicked.connect(_on_annotation_cycle)
+    win.btn_skeleton.clicked.connect(lambda _checked=False: viewer.toggle_skeleton())
+    win._on_key_a = _on_annotation_cycle
+
+    # Connect menu / shortcut stubs on MainWindow
+    win._on_dir_opened = ctrl.open_directory
+    win._on_key_1 = viewer.toggle_fit
+    win.action_open.triggered.disconnect()
+    win.action_open.triggered.connect(ctrl.open_directory_dialog)
+    win.action_copy.triggered.connect(ctrl.on_copy)
+    win.action_move.triggered.connect(ctrl.on_move)
+    win.action_delete.triggered.connect(ctrl.on_delete)
+    win.action_rename.triggered.connect(ctrl.on_rename)
+    win.action_new_folder.triggered.connect(
+        lambda: ctrl.on_new_folder(dir_tree.selected_path() or '')
+    )
+    win.action_refresh.triggered.connect(ctrl.refresh)
+
+    # Tool menu actions
+    win.action_tool_count.triggered.connect(lambda: file_count.create_dialog(win).exec_())
+    win.action_tool_match.triggered.connect(lambda: file_match.create_dialog(win).exec_())
+    win.action_tool_dupcheck.triggered.connect(lambda: check_duplicates.create_dialog(win).exec_())
+    win.action_tool_raw_dupcheck.triggered.connect(
+        lambda: check_duplicates.create_raw_dialog(win).exec_()
+    )
+    win.action_tool_stats.triggered.connect(lambda: dataset_stats.create_dialog(win).exec_())
+    win.action_tool_trainval.triggered.connect(lambda: train_val_stats.create_dialog(win).exec_())
+    win.action_tool_findkp.triggered.connect(lambda: find_keypoint.create_dialog(win).exec_())
+    win.action_tool_merge.triggered.connect(lambda: merge_and_split.create_dialog(win).exec_())
+    win.action_tool_swap.triggered.connect(lambda: swap_labels.create_dialog(win).exec_())
+
+    # Show
+    win.show()
+    fade_in_window(win)
+
+    # Auto-open last directory, or prompt
+    last_dir = ctrl.last_directory()
+    if last_dir and os.path.isdir(last_dir):
+        ctrl.open_directory(last_dir)
+        ctrl.restore_last_selection()
+    else:
+        ctrl.open_directory_dialog()
+
+    sys.exit(app.exec_())
+
+
+if __name__ == '__main__':
+    main()

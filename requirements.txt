@@ -1,0 +1,3 @@
+# Convenience entry point. Deployment details are documented in deployment/README.md.
+-r deployment/requirements-core.txt
+-r deployment/requirements-labeling.txt

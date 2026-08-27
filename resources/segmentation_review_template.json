@@ -1,0 +1,33 @@
+{
+  "name": "分割审查模板",
+  "version": 1,
+  "description": "X-AnyLabeling 分割 JSON 审查模板，用于检查 polygon 点集、重复点/短边、自交、面积、类别、图片尺寸和空标注。",
+  "task_type": "segmentation",
+  "annotation_dir": "annotations-seg",
+  "target_classes": [],
+  "rules": {
+    "image_size_missing": true,
+    "image_size_mismatch": true,
+    "empty_annotation": true,
+    "invalid_polygon": true,
+    "polygon_outside_image": true,
+    "polygon_duplicate_points": true,
+    "polygon_self_intersection": true,
+    "polygon_small_area": true,
+    "unknown_class": true,
+    "unexpected_shape_type": true
+  },
+  "custom_rules": [],
+  "thresholds": {
+    "polygon_min_area": 4.0,
+    "polygon_min_edge": 2.0
+  },
+  "field_tips": {
+    "task_type": "固定为 segmentation。",
+    "annotation_dir": "当前分割任务使用的 X-AnyLabeling JSON 标注目录名称。",
+    "target_classes": "可选类别白名单；留空表示不检查未知类别。",
+    "rules": "分割内置规则开关；支持 polygon 合法性、重复点/短边、自交、面积、越界、空标注和类别检查。",
+    "custom_rules": "特定场景规则可通过参数化规则或 Python 插件扩展。",
+    "thresholds": "分割 polygon 几何阈值。polygon_min_area 为最小面积，polygon_min_edge 为最小边长。"
+  }
+}

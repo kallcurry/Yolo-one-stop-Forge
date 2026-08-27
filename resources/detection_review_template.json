@@ -1,0 +1,35 @@
+{
+  "name": "目标检测审查模板",
+  "version": 1,
+  "description": "X-AnyLabeling 目标检测 JSON 审查模板，用于检查矩形框、面积、长宽比、重复框、类别、图片尺寸和空标注。",
+  "task_type": "detection",
+  "annotation_dir": "annotations-det",
+  "target_classes": [],
+  "rules": {
+    "image_size_missing": true,
+    "image_size_mismatch": true,
+    "empty_annotation": true,
+    "invalid_rectangle": true,
+    "bbox_outside_image": true,
+    "bbox_small_area": true,
+    "bbox_bad_aspect_ratio": true,
+    "bbox_duplicate": true,
+    "unknown_class": true,
+    "unexpected_shape_type": true
+  },
+  "custom_rules": [],
+  "thresholds": {
+    "bbox_min_area": 4.0,
+    "bbox_min_side": 2.0,
+    "bbox_max_aspect_ratio": 30.0,
+    "bbox_duplicate_iou": 0.95
+  },
+  "field_tips": {
+    "task_type": "固定为 detection。",
+    "annotation_dir": "当前检测任务使用的 X-AnyLabeling JSON 标注目录名称。",
+    "target_classes": "可选类别白名单；留空表示不检查未知类别。",
+    "rules": "目标检测内置规则开关；支持矩形框合法性、面积、长宽比、重复框、越界、空标注和类别检查。",
+    "custom_rules": "特定场景规则可通过参数化规则或 Python 插件扩展。",
+    "thresholds": "检测框几何阈值。bbox_min_area 为最小面积，bbox_min_side 为最小边长，bbox_max_aspect_ratio 为最大长宽比，bbox_duplicate_iou 为重复框 IoU 阈值。"
+  }
+}
