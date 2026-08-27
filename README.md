@@ -66,6 +66,7 @@ python deployment/doctor.py --require-label-tool
 | [常见问题](docs/troubleshooting.md) | xcb 冲突、缺 TXT、类别不全、断点续训等 | 所有人 |
 | [安全与数据保护](docs/security.md) | 删除策略、副本策略、迁移注意 | 所有人 |
 | [路线图](docs/roadmap.md) | 当前边界、推荐后续方向、部署资料 | 所有人 |
+| [评估中心设计](docs/evaluation-center.md) | 评估中心定稿设计：流程、指标、结果契约、模块联动、实施阶段 | 所有人 |
 
 ## 项目结构
 
