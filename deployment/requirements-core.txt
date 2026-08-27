@@ -1,0 +1,9 @@
+# Direct application dependencies verified for the source deployment profile.
+numpy==1.26.4
+opencv-python==4.11.0.86
+PyQt5==5.15.11
+Pillow==11.1.0
+Send2Trash==2.1.0
+PyYAML==6.0.3
+psutil==7.2.2
+ultralytics==8.4.115

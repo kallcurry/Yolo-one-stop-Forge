@@ -1,0 +1,6 @@
+# X-AnyLabeling is optional at runtime, but required by "修改当前文件标签".
+# Keep NumPy and both OpenCV wheels on compatible versions.
+numpy==1.26.4
+opencv-python==4.11.0.86
+opencv-contrib-python-headless==4.11.0.86
+x-anylabeling-cvhub==3.3.10
