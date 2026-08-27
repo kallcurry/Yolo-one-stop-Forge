@@ -171,21 +171,25 @@ TASK_PRESETS = {
     "pose": {
         "name": "Pose 姿态估计数据审查",
         "annotation_dir": "annotations",
+        "label_dir": "labels",
         "template_file": "pose_review_template.json",
     },
     "detection": {
         "name": "目标检测数据审查",
         "annotation_dir": "annotations-det",
+        "label_dir": "labels-det",
         "template_file": "detection_review_template.json",
     },
     "segmentation": {
         "name": "语义/实例分割数据审查",
         "annotation_dir": "annotations-seg",
+        "label_dir": "labels-seg",
         "template_file": "segmentation_review_template.json",
     },
     "obb": {
         "name": "旋转目标检测数据审查",
         "annotation_dir": "annotations-obb",
+        "label_dir": "labels-obb",
         "template_file": "obb_review_template.json",
     },
 }

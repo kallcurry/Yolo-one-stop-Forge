@@ -22,6 +22,7 @@ labels/<source>/sample.txt
 - 随机种子控制结果可复现。
 - 会检查类别分布，并尽可能在每个集合中保留每个类别；单例或极稀有类别优先保留在训练集。
 - **测试集优先划分**：先按测试比例逐来源抽取测试样本（类别感知、稀有类保护），剩余样本再按验证比例划分 `train/val`；测试样本独立写入 `test_data/<测试批次名>/`，训练批次中永不混入测试样本。
+- **多任务数据划分**：标签目录按任务隔离（`labels` / `labels-det` / `labels-seg` / `labels-obb`，与标注目录约定一致）；每次准备在训练批次写入任务无关的 `split_manifest.json`（stem → train/val/test），勾选“复用上次划分”后，同来源/同比例/同种子的另一任务准备会复用该分配，保证同一张图跨任务都落在同一集合（跨任务比较合法、无数据泄漏）。
 - 测试批次包含 `images/annotations/labels`、`dataset.yaml` 与 `test_manifest.json`（记录来源、比例、样本清单与关联的训练批次），供评估中心使用；训练批次 `preparation_manifest.json` 同步记录 `test_batch`/`test_ratio`/`test` 数量。
 - 测试集中已登记的数据可按准备参数排除，避免数据泄漏。
 

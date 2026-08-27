@@ -45,6 +45,7 @@ class DatasetPreparationRequest:
     seed: int = 42
     test_ratio: float = 0.0
     test_batch_name: str = ''
+    reuse_split: bool = False
     use_copy: bool = False
     exclude_test: bool = True
     allow_background_without_label: bool = False
@@ -84,6 +85,7 @@ class DatasetPreparationRequest:
             seed=int(self.seed),
             test_ratio=test_ratio,
             test_batch_name=test_batch_name,
+            reuse_split=bool(self.reuse_split),
             use_copy=bool(self.use_copy),
             exclude_test=bool(self.exclude_test),
             allow_background_without_label=bool(
@@ -471,36 +473,68 @@ def prepare_dataset(request: DatasetPreparationRequest,
     if target.exists():
         raise DatasetPreparationError(f'训练批次已存在，不能覆盖: {target}')
 
-    # 测试集划分（可选）：按测试比例逐来源抽取（类别感知、稀有类保护），
-    # 再从剩余样本中按验证比例划分；测试样本独立写入 test_data/<批次名>，
-    # 训练批次中永不混入测试样本。
-    test_samples: list[DatasetSample] = []
-    if request.test_ratio > 0:
-        test_stems = _source_stratified_val_stems(
+    # 划分：复用已有同参数划分（跨任务对齐：同一张图在不同任务的
+    # train/val/test 集合保持一致），或按测试/验证比例重新分层抽取。
+    reuse_source: Path | None = None
+    split_assign: dict[str, str] = {}
+    if request.reuse_split:
+        reused = _find_reusable_split(request)
+        if reused is None:
+            raise DatasetPreparationError(
+                '未找到可复用的同参数划分（来源/验证比例/测试比例/种子需一致），'
+                '请取消“复用上次划分”后重试'
+            )
+        missing = {sample.stem for sample in scan.samples} - set(reused)
+        if missing:
+            raise DatasetPreparationError(
+                f'可复用划分与当前样本不一致（缺少 {len(missing)} 个样本记录），'
+                '请检查数据或取消“复用上次划分”'
+            )
+        split_assign = reused
+        reuse_source = Path(reused.get('_manifest_path', '')) or None
+    else:
+        test_samples: list[DatasetSample] = []
+        if request.test_ratio > 0:
+            test_stems = _source_stratified_val_stems(
+                [
+                    (sample.source_name, sample.stem, sample.label_path)
+                    for sample in scan.samples
+                ],
+                request.test_ratio,
+                request.seed,
+            )
+            test_samples = [
+                sample for sample in scan.samples if sample.stem in test_stems
+            ]
+        remaining = [
+            sample for sample in scan.samples
+            if sample.stem not in {sample.stem for sample in test_samples}
+        ]
+        val_stems = _source_stratified_val_stems(
             [
                 (sample.source_name, sample.stem, sample.label_path)
-                for sample in scan.samples
+                for sample in remaining
             ],
-            request.test_ratio,
+            request.val_ratio,
             request.seed,
         )
-        test_samples = [
-            sample for sample in scan.samples if sample.stem in test_stems
-        ]
-    remaining = [
-        sample for sample in scan.samples
-        if sample.stem not in {sample.stem for sample in test_samples}
+        for sample in remaining:
+            split_assign[sample.stem] = (
+                'val' if sample.stem in val_stems else 'train'
+            )
+        for sample in test_samples:
+            split_assign[sample.stem] = 'test'
+
+    train_samples = [
+        sample for sample in scan.samples if split_assign[sample.stem] == 'train'
     ]
-    val_stems = _source_stratified_val_stems(
-        [
-            (sample.source_name, sample.stem, sample.label_path)
-            for sample in remaining
-        ],
-        request.val_ratio,
-        request.seed,
-    )
-    train_samples = [sample for sample in remaining if sample.stem not in val_stems]
-    val_samples = [sample for sample in remaining if sample.stem in val_stems]
+    val_samples = [
+        sample for sample in scan.samples if split_assign[sample.stem] == 'val'
+    ]
+    test_samples = [
+        sample for sample in scan.samples if split_assign[sample.stem] == 'test'
+    ]
+    remaining = train_samples + val_samples
 
     training_root.mkdir(parents=True, exist_ok=True)
     staging = training_root / (
@@ -558,6 +592,29 @@ def prepare_dataset(request: DatasetPreparationRequest,
                 'issue_files': 0,
                 'issue_count': 0,
             }, ensure_ascii=False, indent=2),
+            encoding='utf-8',
+        )
+
+        # 划分清单：任务无关的 stem→集合 分配记录，供跨任务复用
+        split_payload = {
+            'version': 1,
+            'created_at': _utc_now(),
+            'task_type': request.task_type,
+            'source_batches': list(request.source_names),
+            'seed': request.seed,
+            'val_ratio': request.val_ratio,
+            'test_ratio': request.test_ratio,
+            'reused_from': (
+                str(reuse_source) if reuse_source is not None else ''
+            ),
+            'split': {
+                stem: value
+                for stem, value in split_assign.items()
+                if not stem.startswith('_')
+            },
+        }
+        (staging / 'split_manifest.json').write_text(
+            json.dumps(split_payload, ensure_ascii=False, indent=2),
             encoding='utf-8',
         )
 
@@ -954,6 +1011,41 @@ def _find_source_peer(root: Path, peer_name: str,
     nested = image_dir / peer_name
     if nested.is_dir():
         return nested
+    return None
+
+
+def _find_reusable_split(request: DatasetPreparationRequest) -> dict | None:
+    """Find an existing task-agnostic split matching sources/ratios/seed."""
+    training_root = request.dataset_root / 'training_data'
+    if not training_root.is_dir():
+        return None
+    for manifest in sorted(training_root.glob('*/split_manifest.json')):
+        try:
+            data = json.loads(manifest.read_text(encoding='utf-8'))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        if set(data.get('source_batches', ())) != set(request.source_names):
+            continue
+        if abs(float(data.get('val_ratio', -1)) - float(request.val_ratio)) > 1e-9:
+            continue
+        if abs(float(data.get('test_ratio', -1)) - float(request.test_ratio)) > 1e-9:
+            continue
+        if int(data.get('seed', -1)) != int(request.seed):
+            continue
+        split = data.get('split')
+        if not isinstance(split, dict) or not split:
+            continue
+        resolved = {
+            str(stem): str(value)
+            for stem, value in split.items()
+            if value in ('train', 'val', 'test')
+        }
+        if len(resolved) != len(split):
+            continue
+        resolved['_manifest_path'] = str(manifest)
+        return resolved
     return None
 
 

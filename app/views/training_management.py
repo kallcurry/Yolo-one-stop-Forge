@@ -517,6 +517,16 @@ class TrainingManagementView(QWidget):
         self.test_batch_name_edit.setPlaceholderText('测试比例>0 时必填，如 2026-08-27-test')
         options.addWidget(self.test_batch_name_edit, 3, 3, 1, 3)
 
+        self.check_reuse_split = QCheckBox('复用上次划分（跨任务同一张图同集合）')
+        self.check_reuse_split.setObjectName('trainingCheck')
+        self.check_reuse_split.setToolTip(
+            '勾选后，当来源/验证比例/测试比例/种子与某个已有批次完全一致时，'
+            '直接复用该批次的 stem→集合 分配（任务无关）。'
+            '这样同一批图以后做目标检测等其他任务时，'
+            'train/val/test 划分与本次完全一致，跨任务比较合法、无数据泄漏。'
+        )
+        options.addWidget(self.check_reuse_split, 4, 0, 1, 4)
+
         self.background_checkbox = QPushButton('空标注作背景')
         self.background_checkbox.setObjectName('trainingOptionBtn')
         self.background_checkbox.setCheckable(True)
@@ -1489,6 +1499,11 @@ class TrainingManagementView(QWidget):
                 'annotation_dir', f'annotations-{task_type}'
             )
         )
+        self._label_dir = str(
+            TASK_PRESETS.get(task_type, {}).get(
+                'label_dir', 'labels'
+            )
+        )
         index = self.task_combo.findData(task_type)
         if index >= 0 and self.task_combo.currentIndex() != index:
             self.task_combo.blockSignals(True)
@@ -2351,6 +2366,7 @@ class TrainingManagementView(QWidget):
             seed=self.seed_spin.value(),
             test_ratio=float(self.test_ratio_spin.value()),
             test_batch_name=self.test_batch_name_edit.text().strip(),
+            reuse_split=self.check_reuse_split.isChecked(),
             use_copy=bool(self.write_mode_combo.currentData()),
             exclude_test=True,
             allow_background_without_label=self.background_checkbox.isChecked(),

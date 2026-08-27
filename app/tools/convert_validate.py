@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (
     QDialog,
 )
 
+from app.models.annotation_review import TASK_PRESETS
 from app.models.annotation_converter import (
     ConvertReport,
     LabelConfig,
@@ -150,6 +151,12 @@ class ConvertValidateDialog(QDialog):
             QMessageBox.warning(self, '配置无效', str(exc))
             return None
         _save_config_path(config_path)
+        # 按任务更新默认目录（多任务数据并存：labels / labels-det / ...）
+        preset = TASK_PRESETS.get(config.task_type, {})
+        if preset.get('annotation_dir'):
+            self.edit_annotation_dir.setText(str(preset['annotation_dir']))
+        if preset.get('label_dir'):
+            self.edit_label_dir.setText(str(preset['label_dir']))
         return config
 
     def _resolved_dirs(self):
