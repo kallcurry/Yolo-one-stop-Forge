@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from PyQt5.QtCore import QProcess, Qt, QTimer, QEvent
+from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import (
     QButtonGroup,
     QAbstractItemView,
@@ -82,6 +83,19 @@ class EvaluationManagementView(QWidget):
         self._selected_task: EvaluationTaskRecord | None = None
         self._records: list[EvaluationTaskRecord] = []
         self._visible_cards: list[QFrame] = []
+
+        # 显式深色调色板：避免顶层/滚动区使用平台默认白底
+        palette = self.palette()
+        dark = QColor(8, 16, 25)
+        palette.setColor(QPalette.Window, dark)
+        palette.setColor(QPalette.Base, dark)
+        palette.setColor(QPalette.AlternateBase, QColor(18, 37, 52))
+        palette.setColor(QPalette.WindowText, QColor(216, 226, 239))
+        palette.setColor(QPalette.Text, QColor(216, 226, 239))
+        palette.setColor(QPalette.Button, QColor(17, 24, 33))
+        palette.setColor(QPalette.ButtonText, QColor(216, 226, 239))
+        palette.setColor(QPalette.Highlight, QColor(36, 104, 150))
+        self.setPalette(palette)
 
         self._build_ui()
         self.refresh_tasks()
@@ -191,15 +205,7 @@ class EvaluationManagementView(QWidget):
             self.step_buttons.append(button)
             rail_layout.addWidget(button)
 
-        rail_hint = QLabel('单任务顺序执行\n完成自动接续队列')
-        rail_hint.setObjectName('evaluationSectionHint')
-        rail_layout.addWidget(rail_hint)
         rail_layout.addStretch()
-        text = QLabel('本地运行 · 测试批次\n只读评估 · 结果可追溯')
-        text.setObjectName('duplicateMetricCaption')
-        text.setWordWrap(True)
-        rail_layout.addWidget(text)
-        rail_layout.addSpacing(6)
         body.addWidget(rail)
 
         self.pages = [
@@ -239,7 +245,6 @@ class EvaluationManagementView(QWidget):
         layout.addLayout(metrics)
 
         toolbar = QHBoxLayout()
-        toolbar.addWidget(QLabel('查看'))
         self.filter_status = QComboBox()
         self.filter_status.setObjectName('trainingCombo')
         self.filter_status.addItem('全部状态', '')
@@ -256,26 +261,25 @@ class EvaluationManagementView(QWidget):
         self.filter_status.setMinimumWidth(140)
         toolbar.addWidget(self.filter_status)
         toolbar.addStretch()
-        btn_new = QPushButton('新建评估')
-        btn_new.setObjectName('primaryBtn')
-        btn_new.clicked.connect(lambda: self._show_page(EVALUATION_PAGE_NEW))
-        toolbar.addWidget(btn_new)
         btn_refresh = QPushButton('刷新')
         btn_refresh.setObjectName('fileOpBtn')
         btn_refresh.clicked.connect(self.refresh_tasks)
         toolbar.addWidget(btn_refresh)
         layout.addLayout(toolbar)
 
-        self.lbl_empty = QLabel('暂无评估任务 — 点击「新建评估」选择模型与测试批次')
+        self.lbl_empty = QLabel('暂无评估任务 — 点击右上角「新建评估」选择模型与测试批次')
         self.lbl_empty.setObjectName('evaluationEmpty')
         self.lbl_empty.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.lbl_empty)
 
         scroll = QScrollArea()
+        scroll.setObjectName('evalTaskScroll')
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.viewport().setAutoFillBackground(False)
         self.cards_host = QWidget()
         self.cards_host.setObjectName('evalTaskCardsHost')
+        self.cards_host.setAutoFillBackground(False)
         self.cards_grid = QGridLayout(self.cards_host)
         self.cards_grid.setContentsMargins(2, 2, 2, 2)
         self.cards_grid.setSpacing(14)
