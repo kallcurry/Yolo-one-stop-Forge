@@ -763,6 +763,10 @@ QWidget#evaluationPanel {
     border-radius: 12px;
 }
 
+QPlainTextEdit#trainingLog {
+    font-size: 12.5px;
+}
+
 QSplitter::handle {
     background-color: #263241;
 }

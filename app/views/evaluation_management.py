@@ -372,14 +372,21 @@ class EvaluationManagementView(QWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(12)
+
+        panel = QWidget()
+        panel.setObjectName('evaluationPanel')
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(16, 14, 16, 14)
+        panel_layout.setSpacing(10)
 
         self.monitor_title = QLabel('当前任务：无')
         self.monitor_title.setObjectName('trainingTitle')
-        layout.addWidget(self.monitor_title)
+        panel_layout.addWidget(self.monitor_title)
         self.monitor_status = QLabel('空闲')
         self.monitor_status.setObjectName('duplicateSummary')
         self.monitor_status.setWordWrap(True)
-        layout.addWidget(self.monitor_status)
+        panel_layout.addWidget(self.monitor_status)
 
         btn_row = QHBoxLayout()
         btn_stop = QPushButton('停止当前任务')
@@ -391,7 +398,8 @@ class EvaluationManagementView(QWidget):
         btn_clear.clicked.connect(lambda: self.monitor_log.clear())
         btn_row.addWidget(btn_clear)
         btn_row.addStretch()
-        layout.addLayout(btn_row)
+        panel_layout.addLayout(btn_row)
+        layout.addWidget(panel)
 
         self.monitor_log = QPlainTextEdit()
         self.monitor_log.setObjectName('trainingLog')
@@ -408,6 +416,11 @@ class EvaluationManagementView(QWidget):
         self.result_title.setObjectName('duplicateTitle')
         self.result_title.setWordWrap(True)
         layout.addWidget(self.result_title)
+
+        self.result_meta = QLabel('')
+        self.result_meta.setObjectName('evaluationSectionHint')
+        self.result_meta.setWordWrap(True)
+        layout.addWidget(self.result_meta)
 
         self.metric_cards = QGridLayout()
         layout.addLayout(self.metric_cards)
@@ -427,11 +440,41 @@ class EvaluationManagementView(QWidget):
 
         btn_row = QHBoxLayout()
         btn_open = QPushButton('打开结果目录')
+        btn_open.setObjectName('fileOpBtn')
         btn_open.clicked.connect(self._open_selected_result)
         btn_row.addWidget(btn_open)
+        self.btn_output_csv = QPushButton('results.csv')
+        self.btn_output_csv.setObjectName('fileOpBtn')
+        self.btn_output_csv.setEnabled(False)
+        self.btn_output_csv.clicked.connect(lambda: self._open_output('csv'))
+        btn_row.addWidget(self.btn_output_csv)
+        self.btn_output_png = QPushButton('训练曲线 PNG')
+        self.btn_output_png.setObjectName('fileOpBtn')
+        self.btn_output_png.setEnabled(False)
+        self.btn_output_png.clicked.connect(lambda: self._open_output('png'))
+        btn_row.addWidget(self.btn_output_png)
+        self.btn_output_conf = QPushButton('混淆矩阵')
+        self.btn_output_conf.setObjectName('fileOpBtn')
+        self.btn_output_conf.setEnabled(False)
+        self.btn_output_conf.clicked.connect(lambda: self._open_output('conf'))
+        btn_row.addWidget(self.btn_output_conf)
         btn_row.addStretch()
         layout.addLayout(btn_row)
         return widget
+
+    def _open_output(self, kind: str):
+        record = self._selected_task
+        if record is None or not record.output_dir:
+            return
+        mapping = {
+            'csv': 'results.csv',
+            'png': 'results.png',
+            'conf': 'confusion_matrix.png',
+        }
+        target = Path(record.output_dir) / mapping.get(kind, '')
+        if target.is_file():
+            import subprocess
+            subprocess.Popen(['xdg-open', str(target)])
 
     # ---- helpers ----
 
@@ -802,6 +845,9 @@ class EvaluationManagementView(QWidget):
             f'任务 {record.task_id} · {record.spec.get("model_label", "")} '
             f'@ {record.spec.get("test_batch", "")}'
         )
+        self.result_meta.setText('')
+        for button in (self.btn_output_csv, self.btn_output_png, self.btn_output_conf):
+            button.setEnabled(False)
         while self.metric_cards.count():
             item = self.metric_cards.takeAt(0)
             if item.widget():
@@ -861,6 +907,25 @@ class EvaluationManagementView(QWidget):
                     else f"{values['mAP50']:.4f}"
                 ),
             )
+        latency = payload.get('latency') or {}
+        latency_text = (
+            f"时延 {latency.get('ms_per_image')} ms · {latency.get('fps')} FPS"
+            if latency.get('ms_per_image') is not None else '时延未记录'
+        )
+        self.result_meta.setText(
+            f'测试批次 {payload.get("test_batch", "-")} · '
+            f'训练批次 {payload.get("training_batch") or "-"} · '
+            f'{latency_text} · '
+            f'数据指纹 {str(payload.get("test_manifest_sha256", ""))[:12]}... · '
+            f'{payload.get("created_at", "")}'
+        )
+        outputs = Path(record.output_dir)
+        for button, name in (
+            (self.btn_output_csv, 'results.csv'),
+            (self.btn_output_png, 'results.png'),
+            (self.btn_output_conf, 'confusion_matrix.png'),
+        ):
+            button.setEnabled((outputs / name).is_file())
 
     def _retry_selected(self):
         record = self._selected_task
