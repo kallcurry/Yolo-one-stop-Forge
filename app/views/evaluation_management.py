@@ -7,12 +7,13 @@ import os
 import sys
 from pathlib import Path
 
-from PyQt5.QtCore import QProcess, Qt, QTimer
+from PyQt5.QtCore import QProcess, Qt, QTimer, QEvent
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -23,6 +24,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QSplitter,
     QTabWidget,
@@ -72,6 +74,8 @@ class EvaluationManagementView(QWidget):
         self._process: QProcess | None = None
         self._current_record: EvaluationTaskRecord | None = None
         self._selected_task: EvaluationTaskRecord | None = None
+        self._records: list[EvaluationTaskRecord] = []
+        self._visible_cards: list[QFrame] = []
 
         self._build_ui()
         self.refresh_tasks()
@@ -123,13 +127,11 @@ class EvaluationManagementView(QWidget):
         layout.addWidget(self.tabs, 1)
 
     def _build_task_center_tab(self) -> QWidget:
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setObjectName('evaluationBodySplitter')
-
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 8, 0, 0)
-        left_layout.setSpacing(8)
+        widget = QWidget()
+        widget.setObjectName('evalTaskCenter')
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(10)
 
         metrics = QHBoxLayout()
         self.metric_total = self._metric(metrics, '总任务')
@@ -137,104 +139,71 @@ class EvaluationManagementView(QWidget):
         self.metric_running = self._metric(metrics, '运行中')
         self.metric_done = self._metric(metrics, '已完成')
         self.metric_failed = self._metric(metrics, '失败')
-        left_layout.addLayout(metrics)
+        layout.addLayout(metrics)
+
+        toolbar = QHBoxLayout()
+        toolbar.addWidget(QLabel('查看'))
+        self.filter_status = QComboBox()
+        self.filter_status.setObjectName('trainingCombo')
+        self.filter_status.addItem('全部状态', '')
+        for label, value in (
+            ('排队中', 'queued'),
+            ('运行中', 'running'),
+            ('已完成', 'completed'),
+            ('失败/停止', 'failed'),
+            ('中断', 'interrupted'),
+            ('已停止', 'stopped'),
+        ):
+            self.filter_status.addItem(label, value)
+        self.filter_status.currentIndexChanged.connect(self.refresh_tasks)
+        self.filter_status.setMinimumWidth(140)
+        toolbar.addWidget(self.filter_status)
+        toolbar.addStretch()
+        btn_new = QPushButton('新建评估')
+        btn_new.setObjectName('primaryBtn')
+        btn_new.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
+        toolbar.addWidget(btn_new)
+        btn_refresh = QPushButton('刷新')
+        btn_refresh.setObjectName('fileOpBtn')
+        btn_refresh.clicked.connect(self.refresh_tasks)
+        toolbar.addWidget(btn_refresh)
+        layout.addLayout(toolbar)
 
         self.lbl_empty = QLabel('暂无评估任务 — 点击「新建评估」选择模型与测试批次')
         self.lbl_empty.setObjectName('evaluationEmpty')
         self.lbl_empty.setAlignment(Qt.AlignCenter)
-        left_layout.addWidget(self.lbl_empty)
+        layout.addWidget(self.lbl_empty)
 
-        action_row = QHBoxLayout()
-        btn_new = QPushButton('新建评估')
-        btn_new.setObjectName('primaryBtn')
-        btn_new.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
-        action_row.addWidget(btn_new)
-        btn_retry = QPushButton('重试所选任务')
-        btn_retry.setObjectName('successBtn')
-        btn_retry.clicked.connect(self._retry_selected)
-        action_row.addWidget(btn_retry)
-        btn_open = QPushButton('打开结果目录')
-        btn_open.setObjectName('fileOpBtn')
-        btn_open.clicked.connect(self._open_selected_result)
-        action_row.addWidget(btn_open)
-        btn_delete = QPushButton('删除所选任务')
-        btn_delete.setObjectName('dangerBtn')
-        btn_delete.clicked.connect(self._delete_selected)
-        action_row.addWidget(btn_delete)
-        btn_refresh = QPushButton('刷新')
-        btn_refresh.setObjectName('fileOpBtn')
-        btn_refresh.clicked.connect(self.refresh_tasks)
-        action_row.addWidget(btn_refresh)
-        action_row.addStretch()
-        left_layout.addLayout(action_row)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        self.cards_host = QWidget()
+        self.cards_host.setObjectName('evalTaskCardsHost')
+        self.cards_grid = QGridLayout(self.cards_host)
+        self.cards_grid.setContentsMargins(2, 2, 2, 2)
+        self.cards_grid.setSpacing(14)
+        self.cards_grid.setAlignment(Qt.AlignTop)
+        scroll.setWidget(self.cards_host)
+        layout.addWidget(scroll, 1)
+        widget.installEventFilter(self)
+        return widget
 
-        self.task_table = QTableWidget(0, 6)
-        self.task_table.setHorizontalHeaderLabels(
-            ['任务', '模型', '测试批次', '状态', '摘要', '创建时间']
-        )
-        self.task_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.task_table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.task_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.task_table.setAlternatingRowColors(True)
-        self.task_table.verticalHeader().setVisible(False)
-        header = self.task_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.Stretch)
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        self.task_table.itemSelectionChanged.connect(self._on_task_selected)
-        self.task_table.itemDoubleClicked.connect(
-            lambda _item: self._show_detail()
-        )
-        left_layout.addWidget(self.task_table, 1)
-        splitter.addWidget(left)
-        splitter.setStretchFactor(0, 1)
+    def eventFilter(self, watched, event):
+        if watched is self and event.type() == QEvent.Resize:
+            QTimer.singleShot(0, self._relayout_cards)
+        return super().eventFilter(watched, event)
 
-        # 右侧：任务详情面板（左右排版，长驻可见）
-        right = QWidget()
-        right.setObjectName('evaluationPanel')
-        right.setMinimumWidth(300)
-        right.setMaximumWidth(420)
-        right_layout = QVBoxLayout(right)
-        right_layout.setContentsMargins(14, 12, 14, 12)
-        right_layout.setSpacing(10)
-
-        detail_title = QLabel('任务详情')
-        detail_title.setObjectName('trainingSectionTitle')
-        right_layout.addWidget(detail_title)
-
-        self.task_detail = QLabel('选择任务查看详情；双击可在“结果”页打开。')
-        self.task_detail.setObjectName('duplicateSummary')
-        self.task_detail.setWordWrap(True)
-        right_layout.addWidget(self.task_detail)
-
-        mini = QHBoxLayout()
-        self.detail_metric_map = self._metric(mini, '测试集 mAP50-95')
-        self.detail_metric_gap = self._metric(mini, '泛化差距')
-        right_layout.addLayout(mini)
-
-        right_buttons = QVBoxLayout()
-        self.btn_right_open = QPushButton('打开结果目录')
-        self.btn_right_open.setObjectName('fileOpBtn')
-        self.btn_right_open.clicked.connect(self._open_selected_result)
-        right_buttons.addWidget(self.btn_right_open)
-        self.btn_right_retry = QPushButton('重试任务')
-        self.btn_right_retry.setObjectName('successBtn')
-        self.btn_right_retry.clicked.connect(self._retry_selected)
-        right_buttons.addWidget(self.btn_right_retry)
-        right_buttons.addStretch()
-        right_layout.addLayout(right_buttons)
-
-        self.lbl_right_hint = QLabel('双击任务列表可在“结果”页查看完整指标。')
-        self.lbl_right_hint.setObjectName('evaluationSectionHint')
-        right_layout.addWidget(self.lbl_right_hint)
-        right_layout.addStretch()
-        splitter.addWidget(right)
-
-        splitter.setSizes([690, 330])
-        return splitter
+    def _relayout_cards(self):
+        if not hasattr(self, 'cards_grid') or not self._visible_cards:
+            return
+        width = self.cards_host.width()
+        columns = 2 if width >= 860 else (1 if width >= 0 else 1)
+        total = len(self._visible_cards)
+        for index, card in enumerate(self._visible_cards):
+            row, column = divmod(index, columns)
+            self.cards_grid.addWidget(card, row, column)
+        for column in range(columns):
+            self.cards_grid.setColumnStretch(column, 1)
 
     def _build_new_tab(self) -> QWidget:
         widget = QWidget()
@@ -765,7 +734,6 @@ class EvaluationManagementView(QWidget):
 
     def refresh_tasks(self):
         records = self._registry.list_all()
-        self.task_table.setRowCount(len(records))
         self._records = records
         self.metric_total.setText(str(len(records)))
         self.metric_queued.setText(
@@ -780,65 +748,121 @@ class EvaluationManagementView(QWidget):
         self.metric_failed.setText(
             str(sum(1 for r in records if r.status in ('failed', 'interrupted', 'stopped')))
         )
-        self.lbl_empty.setVisible(not records)
-        for row, record in enumerate(records):
-            metrics = record.metrics
-            summary = (
-                f"mAP50-95={metrics.get('mAP50-95')}" if metrics else (
-                    record.error or ''
-                )
-            )
-            values = (
-                record.task_id,
-                str(record.spec.get('model_label') or record.spec.get('model_path') or ''),
-                str(record.spec.get('test_batch') or ''),
-                record.status,
-                summary,
-                record.created_at,
-            )
-            for column, value in enumerate(values):
-                item = QTableWidgetItem(str(value))
-                if column == 3:
-                    item.setForeground(
-                        __import__('PyQt5.QtGui', fromlist=['QColor']).QColor(
-                            STATUS_TONES.get(record.status, '#D8E2EF')
-                        )
-                    )
-                item.setData(Qt.UserRole, row)
-                self.task_table.setItem(row, column, item)
-        self._on_task_selected()
+        filter_value = self.filter_status.currentData() or ''
+        visible = [
+            record for record in records
+            if not filter_value or record.status == filter_value
+        ]
+        while self.cards_grid.count():
+            item = self.cards_grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._visible_cards = [self._build_task_card(record) for record in visible]
+        self._relayout_cards()
+        self.lbl_empty.setVisible(not visible)
 
-    def _on_task_selected(self):
-        rows = self.task_table.selectionModel().selectedRows()
-        if not rows or not hasattr(self, '_records'):
-            return
-        self._selected_task = self._records[rows[0].row()]
-        self._show_detail()
+    def _build_task_card(self, record: EvaluationTaskRecord) -> QFrame:
+        card = QFrame()
+        card.setObjectName('evaluationTaskCard')
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
 
-    def _show_detail(self):
-        record = self._selected_task
-        if record is None:
-            return
-        detail = (
-            f'任务 {record.task_id} · {record.status}\n'
-            f'模型: {record.spec.get("model_path", "")}\n'
-            f'测试批次: {record.spec.get("test_batch", "")} '
-            f'（指纹 {str(record.spec.get("test_manifest_sha256", ""))[:16]}...）\n'
-            f'输出: {record.output_dir}'
+        top = QHBoxLayout()
+        status_badge = QLabel({
+            'queued': '排队中', 'running': '运行中', 'completed': '已完成',
+            'failed': '失败', 'stopped': '已停止', 'interrupted': '中断',
+        }.get(record.status, record.status))
+        status_badge.setObjectName('evalCardStatus')
+        status_badge.setProperty('tone', record.status)
+        top.addWidget(status_badge)
+        top.addStretch()
+        time_label = QLabel(record.created_at or '')
+        time_label.setObjectName('evalCardTime')
+        top.addWidget(time_label)
+        layout.addLayout(top)
+
+        title = QLabel(
+            str(record.spec.get('model_label') or record.spec.get('model_path') or record.task_id)
         )
-        if record.error:
-            detail += f'\n错误: {record.error}'
-        self.task_detail.setText(detail)
+        title.setObjectName('evalCardTitle')
+        title.setWordWrap(True)
+        layout.addWidget(title)
+
+        scope = QLabel(
+            f'测试批次 {record.spec.get("test_batch", "-")} · {record.task_id}'
+        )
+        scope.setObjectName('evalCardScope')
+        scope.setWordWrap(True)
+        layout.addWidget(scope)
+
+        divider = QFrame()
+        divider.setFrameShape(QFrame.HLine)
+        divider.setObjectName('evalCardDivider')
+        layout.addWidget(divider)
+
         metrics = record.metrics
-        self.detail_metric_map.setText(
-            '-' if metrics.get('mAP50-95') is None
-            else f"{metrics['mAP50-95']:.4f}"
+        stats = QHBoxLayout()
+        stats.addWidget(self._card_stat('mAP50-95', metrics.get('mAP50-95')))
+        stats.addWidget(self._card_stat('泛化差距', metrics.get('gap')))
+        stats.addWidget(self._card_stat('状态', record.error or '正常'))
+        stats.addStretch()
+        layout.addLayout(stats)
+
+        actions = QHBoxLayout()
+        btn_open = QPushButton('查看结果')
+        btn_open.setObjectName('primaryBtn')
+        btn_open.setFixedHeight(28)
+        btn_open.clicked.connect(
+            lambda _checked=False, r=record: self._open_result(r)
         )
-        self.detail_metric_gap.setText(
-            '-' if metrics.get('gap') is None
-            else f"{metrics['gap']:+.4f}"
+        actions.addWidget(btn_open)
+        btn_dir = QPushButton('结果目录')
+        btn_dir.setObjectName('fileOpBtn')
+        btn_dir.setFixedHeight(28)
+        btn_dir.clicked.connect(
+            lambda _checked=False, r=record: self._open_selected_result(r)
         )
+        actions.addWidget(btn_dir)
+        btn_retry = QPushButton('重试')
+        btn_retry.setObjectName('successBtn')
+        btn_retry.setFixedHeight(28)
+        btn_retry.clicked.connect(
+            lambda _checked=False, r=record: self._retry_selected(r)
+        )
+        actions.addWidget(btn_retry)
+        btn_delete = QPushButton('删除')
+        btn_delete.setObjectName('dangerBtn')
+        btn_delete.setFixedHeight(28)
+        btn_delete.clicked.connect(
+            lambda _checked=False, r=record: self._delete_selected(r)
+        )
+        actions.addWidget(btn_delete)
+        actions.addStretch()
+        layout.addLayout(actions)
+        return card
+
+    @staticmethod
+    def _card_stat(caption: str, value) -> QWidget:
+        box = QWidget()
+        box_layout = QVBoxLayout(box)
+        box_layout.setContentsMargins(0, 0, 0, 0)
+        box_layout.setSpacing(1)
+        caption_label = QLabel(caption)
+        caption_label.setObjectName('evalCardStatCaption')
+        value_label = QLabel(
+            '-' if value is None or value == ''
+            else (f'{value:.4f}' if isinstance(value, (int, float)) else str(value))
+        )
+        value_label.setObjectName('evalCardStatValue')
+        box_layout.addWidget(caption_label)
+        box_layout.addWidget(value_label)
+        return box
+
+    def _open_result(self, record: EvaluationTaskRecord):
+        self._selected_task = record
         self._load_result(record)
+        self.tabs.setCurrentIndex(3)
 
     def _load_result(self, record: EvaluationTaskRecord):
         self.result_title.setText(
@@ -927,8 +951,8 @@ class EvaluationManagementView(QWidget):
         ):
             button.setEnabled((outputs / name).is_file())
 
-    def _retry_selected(self):
-        record = self._selected_task
+    def _retry_selected(self, record: EvaluationTaskRecord | None = None):
+        record = record or self._selected_task
         if record is None:
             return
         if record.status in ('queued', 'running'):
@@ -941,8 +965,8 @@ class EvaluationManagementView(QWidget):
         self.refresh_tasks()
         self._resume_queued()
 
-    def _open_selected_result(self):
-        record = self._selected_task
+    def _open_selected_result(self, record: EvaluationTaskRecord | None = None):
+        record = record or self._selected_task
         if record is None:
             return
         target = Path(record.output_dir or record.task_dir)
@@ -952,8 +976,8 @@ class EvaluationManagementView(QWidget):
         import subprocess
         subprocess.Popen(['xdg-open', str(target)])
 
-    def _delete_selected(self):
-        record = self._selected_task
+    def _delete_selected(self, record: EvaluationTaskRecord | None = None):
+        record = record or self._selected_task
         if record is None:
             return
         if record.status in ('queued', 'running'):

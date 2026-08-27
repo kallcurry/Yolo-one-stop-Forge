@@ -767,6 +767,64 @@ QPlainTextEdit#trainingLog {
     font-size: 12.5px;
 }
 
+QFrame#evaluationTaskCard {
+    background-color: rgba(14, 35, 48, 140);
+    border: 1px solid rgba(91, 153, 184, 90);
+    border-radius: 12px;
+}
+
+QFrame#evaluationTaskCard:hover {
+    border-color: #36B7FF;
+    background-color: rgba(20, 46, 62, 165);
+}
+
+QFrame#evalCardDivider {
+    color: rgba(91, 153, 184, 80);
+    max-height: 1px;
+}
+
+QLabel#evalCardStatus {
+    padding: 3px 10px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 800;
+    color: #0E2330;
+    background-color: #45D483;
+}
+
+QLabel#evalCardStatus[tone="queued"] { background-color: #FFD07A; }
+QLabel#evalCardStatus[tone="running"] { background-color: #62E8FF; }
+QLabel#evalCardStatus[tone="failed"] { background-color: #FF6B6B; }
+QLabel#evalCardStatus[tone="stopped"],
+QLabel#evalCardStatus[tone="interrupted"] { background-color: #FFB0B0; }
+
+QLabel#evalCardTitle {
+    color: #F3FCFF;
+    font-size: 15px;
+    font-weight: 800;
+}
+
+QLabel#evalCardScope {
+    color: #86AFC2;
+    font-size: 12px;
+}
+
+QLabel#evalCardTime {
+    color: #7E9CAD;
+    font-size: 11px;
+}
+
+QLabel#evalCardStatCaption {
+    color: #86AFC2;
+    font-size: 11px;
+}
+
+QLabel#evalCardStatValue {
+    color: #DDF2FF;
+    font-size: 14px;
+    font-weight: 700;
+}
+
 QSplitter::handle {
     background-color: #263241;
 }
