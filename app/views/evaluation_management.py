@@ -21,12 +21,12 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QListWidget,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
-    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -81,6 +81,22 @@ class EvaluationManagementView(QWidget):
         self.refresh_model_choices()
         self.refresh_test_batches()
 
+    @staticmethod
+    def _metric(parent_layout: QHBoxLayout, caption: str) -> QLabel:
+        box = QWidget()
+        box.setObjectName('trainingMetricCard')
+        box_layout = QVBoxLayout(box)
+        box_layout.setContentsMargins(10, 7, 10, 7)
+        box_layout.setSpacing(1)
+        caption_label = QLabel(caption)
+        caption_label.setObjectName('trainingMetricCaption')
+        value = QLabel('-')
+        value.setObjectName('trainingMetricValue')
+        box_layout.addWidget(caption_label)
+        box_layout.addWidget(value)
+        parent_layout.addWidget(box, 1)
+        return value
+
     # ---- UI build ----
 
     def _build_ui(self):
@@ -90,10 +106,10 @@ class EvaluationManagementView(QWidget):
 
         header = QHBoxLayout()
         title = QLabel('评估中心')
-        title.setObjectName('moduleTitle')
+        title.setObjectName('trainingTitle')
         header.addWidget(title)
         hint = QLabel('模型 × 测试批次 → 客观度量 → 结果回写模型卡片')
-        hint.setObjectName('moduleScope')
+        hint.setObjectName('duplicateScope')
         header.addWidget(hint)
         header.addStretch()
         layout.addLayout(header)
@@ -110,21 +126,38 @@ class EvaluationManagementView(QWidget):
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 8, 0, 0)
 
+        metrics = QHBoxLayout()
+        self.metric_total = self._metric(metrics, '总任务')
+        self.metric_queued = self._metric(metrics, '排队中')
+        self.metric_running = self._metric(metrics, '运行中')
+        self.metric_done = self._metric(metrics, '已完成')
+        self.metric_failed = self._metric(metrics, '失败')
+        layout.addLayout(metrics)
+
+        self.lbl_empty = QLabel('暂无评估任务 — 点击下方「新建评估」选择模型与测试批次')
+        self.lbl_empty.setObjectName('evaluationEmpty')
+        self.lbl_empty.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.lbl_empty)
+
         action_row = QHBoxLayout()
         btn_new = QPushButton('新建评估')
         btn_new.setObjectName('primaryBtn')
         btn_new.clicked.connect(lambda: self.tabs.setCurrentIndex(1))
         action_row.addWidget(btn_new)
         btn_retry = QPushButton('重试所选任务')
+        btn_retry.setObjectName('successBtn')
         btn_retry.clicked.connect(self._retry_selected)
         action_row.addWidget(btn_retry)
         btn_open = QPushButton('打开结果目录')
+        btn_open.setObjectName('fileOpBtn')
         btn_open.clicked.connect(self._open_selected_result)
         action_row.addWidget(btn_open)
         btn_delete = QPushButton('删除所选任务')
+        btn_delete.setObjectName('dangerBtn')
         btn_delete.clicked.connect(self._delete_selected)
         action_row.addWidget(btn_delete)
         btn_refresh = QPushButton('刷新')
+        btn_refresh.setObjectName('fileOpBtn')
         btn_refresh.clicked.connect(self.refresh_tasks)
         action_row.addWidget(btn_refresh)
         action_row.addStretch()
@@ -163,61 +196,77 @@ class EvaluationManagementView(QWidget):
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 8, 0, 0)
 
+        section = QLabel('新建评估任务')
+        section.setObjectName('trainingSectionTitle')
+        layout.addWidget(section)
+
         form = QGridLayout()
         form.setHorizontalSpacing(10)
         form.setVerticalSpacing(10)
 
         form.addWidget(QLabel('数据根目录'), 0, 0)
         self.edit_root = QLineEdit(stored_dataset_path())
+        self.edit_root.setObjectName('trainingEdit')
         self.edit_root.setPlaceholderText('测试批次所在的项目根目录')
         form.addWidget(self.edit_root, 0, 1, 1, 3)
         btn_root = QPushButton('选择')
+        btn_root.setObjectName('fileOpBtn')
         btn_root.clicked.connect(self._pick_root)
         form.addWidget(btn_root, 0, 4)
 
         form.addWidget(QLabel('测试批次'), 1, 0)
         self.combo_test = QComboBox()
+        self.combo_test.setObjectName('trainingCombo')
         form.addWidget(self.combo_test, 1, 1, 1, 3)
         btn_scan = QPushButton('刷新测试批次')
+        btn_scan.setObjectName('fileOpBtn')
         btn_scan.clicked.connect(self.refresh_test_batches)
         form.addWidget(btn_scan, 1, 4)
 
         form.addWidget(QLabel('评估模型'), 2, 0)
         self.combo_model = QComboBox()
+        self.combo_model.setObjectName('trainingCombo')
         self.combo_model.setEditable(True)
         form.addWidget(self.combo_model, 2, 1, 1, 3)
         btn_model = QPushButton('浏览 .pt')
+        btn_model.setObjectName('fileOpBtn')
         btn_model.clicked.connect(self._browse_model)
         form.addWidget(btn_model, 2, 4)
 
         form.addWidget(QLabel('模型名称'), 3, 0)
         self.edit_model_label = QLineEdit()
+        self.edit_model_label.setObjectName('trainingEdit')
         self.edit_model_label.setPlaceholderText('显示名，如 2026-08-25-pose-2')
         form.addWidget(self.edit_model_label, 3, 1, 1, 4)
 
         form.addWidget(QLabel('imgsz'), 4, 0)
         self.spin_imgsz = QSpinBox()
+        self.spin_imgsz.setObjectName('trainingSpin')
         self.spin_imgsz.setRange(160, 2560)
         self.spin_imgsz.setSingleStep(32)
         self.spin_imgsz.setValue(640)
         form.addWidget(self.spin_imgsz, 4, 1)
         form.addWidget(QLabel('batch'), 4, 2)
         self.spin_batch = QSpinBox()
+        self.spin_batch.setObjectName('trainingSpin')
         self.spin_batch.setRange(1, 256)
         self.spin_batch.setValue(16)
         form.addWidget(self.spin_batch, 4, 3)
         form.addWidget(QLabel('device'), 5, 0)
         self.edit_device = QLineEdit('0')
+        self.edit_device.setObjectName('trainingEdit')
         self.edit_device.setToolTip('如 0、0,1 或 cpu')
         form.addWidget(self.edit_device, 5, 1)
         form.addWidget(QLabel('conf'), 5, 2)
         self.spin_conf = QDoubleSpinBox()
+        self.spin_conf.setObjectName('trainingSpin')
         self.spin_conf.setRange(0.0001, 1.0)
         self.spin_conf.setDecimals(4)
         self.spin_conf.setValue(0.001)
         form.addWidget(self.spin_conf, 5, 3)
         form.addWidget(QLabel('iou'), 6, 0)
         self.spin_iou = QDoubleSpinBox()
+        self.spin_iou.setObjectName('trainingSpin')
         self.spin_iou.setRange(0.1, 1.0)
         self.spin_iou.setDecimals(3)
         self.spin_iou.setValue(0.6)
@@ -231,6 +280,7 @@ class EvaluationManagementView(QWidget):
         btn_create.clicked.connect(self._create_task)
         btn_row.addWidget(btn_create)
         btn_cancel = QPushButton('清空')
+        btn_cancel.setObjectName('fileOpBtn')
         btn_cancel.clicked.connect(self._clear_form)
         btn_row.addWidget(btn_cancel)
         btn_row.addStretch()
@@ -249,7 +299,7 @@ class EvaluationManagementView(QWidget):
         layout.setContentsMargins(0, 8, 0, 0)
 
         self.monitor_title = QLabel('当前任务：无')
-        self.monitor_title.setObjectName('duplicateTitle')
+        self.monitor_title.setObjectName('trainingTitle')
         layout.addWidget(self.monitor_title)
         self.monitor_status = QLabel('空闲')
         self.monitor_status.setObjectName('duplicateSummary')
@@ -258,19 +308,19 @@ class EvaluationManagementView(QWidget):
 
         btn_row = QHBoxLayout()
         btn_stop = QPushButton('停止当前任务')
+        btn_stop.setObjectName('dangerBtn')
         btn_stop.clicked.connect(self._stop_current)
         btn_row.addWidget(btn_stop)
         btn_clear = QPushButton('清空日志')
+        btn_clear.setObjectName('fileOpBtn')
         btn_clear.clicked.connect(lambda: self.monitor_log.clear())
         btn_row.addWidget(btn_clear)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
-        self.monitor_log = QTextEdit()
+        self.monitor_log = QPlainTextEdit()
+        self.monitor_log.setObjectName('trainingLog')
         self.monitor_log.setReadOnly(True)
-        self.monitor_log.setFont(
-            self.monitor_log.font()  # keep default font family
-        )
         layout.addWidget(self.monitor_log, 1)
         return widget
 
@@ -531,7 +581,7 @@ class EvaluationManagementView(QWidget):
                 except (ValueError, TypeError):
                     pass
             else:
-                self.monitor_log.append(stripped)
+                self.monitor_log.appendPlainText(stripped)
 
     def _handle_event(self, event: dict):
         event_type = event.get('type')
@@ -599,6 +649,20 @@ class EvaluationManagementView(QWidget):
         records = self._registry.list_all()
         self.task_table.setRowCount(len(records))
         self._records = records
+        self.metric_total.setText(str(len(records)))
+        self.metric_queued.setText(
+            str(sum(1 for r in records if r.status == 'queued'))
+        )
+        self.metric_running.setText(
+            str(sum(1 for r in records if r.status == 'running'))
+        )
+        self.metric_done.setText(
+            str(sum(1 for r in records if r.status == 'completed'))
+        )
+        self.metric_failed.setText(
+            str(sum(1 for r in records if r.status in ('failed', 'interrupted', 'stopped')))
+        )
+        self.lbl_empty.setVisible(not records)
         for row, record in enumerate(records):
             metrics = record.metrics
             summary = (
@@ -683,15 +747,15 @@ class EvaluationManagementView(QWidget):
         ]
         for index, (name, value) in enumerate(cards):
             box = QWidget()
-            box.setObjectName('duplicateMetric')
+            box.setObjectName('trainingMetricCard')
             box_layout = QVBoxLayout(box)
             box_layout.setContentsMargins(10, 7, 10, 7)
             caption = QLabel(name)
-            caption.setObjectName('duplicateMetricCaption')
+            caption.setObjectName('trainingMetricCaption')
             value_label = QLabel(
                 '-' if value is None else f'{value:.4f}'
             )
-            value_label.setObjectName('duplicateMetricValue')
+            value_label.setObjectName('trainingMetricValue')
             box_layout.addWidget(caption)
             box_layout.addWidget(value_label)
             self.metric_cards.addWidget(box, 0, index)

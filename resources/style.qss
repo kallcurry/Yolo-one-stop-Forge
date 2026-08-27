@@ -743,6 +743,20 @@ QLabel#duplicateDetailTitle {
     padding-top: 4px;
 }
 
+QLabel#evaluationEmpty {
+    color: #7E9CAD;
+    font-size: 14px;
+    padding: 12px;
+    background-color: rgba(14, 35, 48, 90);
+    border: 1px dashed rgba(91, 153, 184, 130);
+    border-radius: 10px;
+}
+
+QLabel#evaluationSectionHint {
+    color: #86AFC2;
+    font-size: 12px;
+}
+
 QSplitter::handle {
     background-color: #263241;
 }
