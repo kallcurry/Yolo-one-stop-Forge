@@ -264,6 +264,20 @@ class RawDuplicateDialog(QDialog):
         body_layout.addWidget(self.detail_list)
         layout.addWidget(body, 1)
 
+        linked_row = QHBoxLayout()
+        self.check_linked = QCheckBox(
+            '联动删除（删除图片副本时，同步删除已确认重复的对应 JSON/TXT 副本）'
+        )
+        self.check_linked.setObjectName('duplicateLinked')
+        self.check_linked.setToolTip(
+            '仅当同名 JSON 标注 / TXT 标签被扫描确认属于重复组且不是保留副本时，'
+            '才会随图片副本一并删除；保留副本与未确认的文件不会删除。'
+        )
+        linked_row.addWidget(self.check_linked)
+        linked_row.addWidget(QLabel('（保留副本与未确认文件将跳过并提示）'))
+        linked_row.addStretch()
+        layout.addLayout(linked_row)
+
         action_row = QHBoxLayout()
         self.btn_delete_group = QPushButton('删除当前重复副本')
         self.btn_delete_group.setObjectName('dangerBtn')
@@ -438,23 +452,30 @@ class RawDuplicateDialog(QDialog):
         )
 
     def _confirm_delete(self, message: str, groups):
+        linked = self.check_linked.isChecked()
         answer = QMessageBox.warning(
             self,
             '确认删除重复副本',
-            message + '\n\n文件将进入系统回收站（若系统不支持则直接删除）。',
+            message
+            + ('\n\n已启用联动删除：已确认重复的对应 JSON 标注 / TXT 标签副本将一并删除。'
+               if linked else '')
+            + '\n\n文件将进入系统回收站（若系统不支持则直接删除）。',
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
         if answer != QMessageBox.Yes or self._result is None:
             return
-        deletion = delete_duplicate_files(self._result, groups)
+        deletion = delete_duplicate_files(
+            self._result, groups, use_trash=True,
+            delete_companions=linked,
+        )
+        parts = [f'成功处理 {len(deletion.deleted)} 个文件。']
+        if deletion.skipped:
+            parts.append('以下文件未联动删除：\n' + '\n'.join(deletion.skipped[:8]))
         if deletion.errors:
-            QMessageBox.warning(
-                self,
-                '删除完成但有失败项',
-                f'成功处理 {len(deletion.deleted)} 个文件。\n' +
-                '\n'.join(deletion.errors[:8]),
-            )
+            parts.append('部分文件失败：\n' + '\n'.join(deletion.errors[:8]))
+        if len(parts) > 1:
+            QMessageBox.warning(self, '删除完成', '\n'.join(parts))
         self.status.setText(f'已处理 {len(deletion.deleted)} 个重复副本，正在重新扫描...')
         self._start_scan()
 

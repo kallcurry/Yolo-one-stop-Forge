@@ -92,6 +92,7 @@ class DeleteResult:
 
     deleted: tuple[Path, ...]
     errors: tuple[str, ...]
+    skipped: tuple[str, ...] = ()
 
 
 def scan_raw_duplicates(
@@ -272,8 +273,16 @@ def delete_duplicate_files(
     groups: Iterable[DuplicateGroup] | None = None,
     *,
     use_trash: bool = True,
+    delete_companions: bool = False,
 ) -> DeleteResult:
     """Delete only duplicate members while preserving every group keeper.
+
+    When ``delete_companions`` is enabled, deleting an image duplicate also
+    removes its companion annotation/label duplicates — the file with the
+    same relative path under ``annotations`` / ``labels``.  A companion is
+    only deleted when the scan has confirmed it as a duplicate member of its
+    own group; keepers and unconfirmed companions are reported in
+    ``skipped`` and never removed.
 
     The result is checked against the scan result and every target must stay
     under the selected dataset root.  This prevents a stale UI selection or a
@@ -281,14 +290,36 @@ def delete_duplicate_files(
     """
 
     selected = tuple(groups) if groups is not None else result.all_groups
-    allowed = {
-        path.resolve()
-        for group in result.all_groups
-        for path in group.duplicates
-    }
+    group_by_path: dict[Path, DuplicateGroup] = {}
+    keeper_paths: set[Path] = set()
+    for group in result.all_groups:
+        for path in group.duplicates:
+            group_by_path[path.resolve()] = group
+        keeper_paths.add(group.keeper.resolve())
     root = result.root.resolve()
     deleted: list[Path] = []
     errors: list[str] = []
+    skipped: list[str] = []
+    removed: set[Path] = set()
+
+    def _remove_one(path: Path, group: DuplicateGroup, label: str = '') -> None:
+        resolved = path.resolve()
+        if resolved in removed:
+            return
+        try:
+            # The UI may stay open while another process edits a file.
+            # Re-check the fingerprint before making a destructive change.
+            if (
+                resolved.stat().st_size != group.size
+                or _sha256(resolved) != group.digest
+            ):
+                skipped.append(f'{label}内容已变化，跳过删除: {resolved}')
+                return
+            _remove_file(resolved, use_trash=use_trash)
+            removed.add(resolved)
+            deleted.append(resolved)
+        except (OSError, PermissionError) as exc:
+            errors.append(f'删除失败 {label}{resolved}: {exc}')
 
     for group in selected:
         for raw_path in group.duplicates:
@@ -299,28 +330,62 @@ def delete_duplicate_files(
             except (OSError, ValueError):
                 errors.append(f'拒绝删除（不在数据根目录内）: {path}')
                 continue
-            if resolved not in allowed:
+            if resolved not in group_by_path:
                 errors.append(f'拒绝删除（不是本次扫描确认的重复副本）: {path}')
                 continue
             if not resolved.is_file() or resolved.is_symlink():
                 errors.append(f'文件不存在或不是普通文件: {path}')
                 continue
+            _remove_one(path, group_by_path[resolved])
 
-            try:
-                # The UI may stay open while another process edits a file.
-                # Re-check the fingerprint before making a destructive change.
-                if (
-                    resolved.stat().st_size != group.size
-                    or _sha256(resolved) != group.digest
-                ):
-                    errors.append(f'文件内容已变化，跳过删除: {resolved}')
-                    continue
-                _remove_file(resolved, use_trash=use_trash)
-                deleted.append(resolved)
-            except (OSError, PermissionError) as exc:
-                errors.append(f'删除失败 {resolved}: {exc}')
+            if delete_companions and group.kind == 'image':
+                for kind, companion in _companion_candidates(path, root):
+                    if companion is None or not companion.exists():
+                        continue
+                    comp_resolved = companion.resolve()
+                    try:
+                        comp_resolved.relative_to(root)
+                    except (OSError, ValueError):
+                        skipped.append(f'{kind} 不在数据根目录内，未联动删除: {comp_resolved}')
+                        continue
+                    comp_group = group_by_path.get(comp_resolved)
+                    if comp_group is None:
+                        if comp_resolved in keeper_paths:
+                            skipped.append(f'{kind} 是保留副本，未联动删除: {comp_resolved}')
+                        else:
+                            skipped.append(f'{kind} 未确认为重复副本，未联动删除: {comp_resolved}')
+                        continue
+                    if not comp_resolved.is_file() or comp_resolved.is_symlink():
+                        skipped.append(f'{kind} 不是普通文件，未联动删除: {comp_resolved}')
+                        continue
+                    _remove_one(companion, comp_group, label='联动删除 ')
 
-    return DeleteResult(tuple(deleted), tuple(errors))
+    return DeleteResult(tuple(deleted), tuple(errors), tuple(skipped))
+
+
+def _companion_candidates(image_path: Path, root: Path):
+    """Return ``(kind, Path)`` companions of an image under the raw tree.
+
+    An ``images/<batch>/<name>.jpg`` file maps to ``annotations/<batch>/<name>.json``
+    and ``labels/<batch>/<name>.txt``.  Only the scanned raw directories are
+    considered; task-specific JSON directories remain outside this scope.
+    """
+
+    try:
+        rel = image_path.relative_to(root).as_posix()
+    except ValueError:
+        return ()
+    parts = rel.split('/')
+    if len(parts) < 2 or parts[0] != 'images':
+        return ()
+    sub = parts[1:]
+    results = []
+    for directory_name, kind in (('annotations', 'annotation'), ('labels', 'label')):
+        companion = root / directory_name / Path(*sub).with_suffix(
+            '.json' if kind == 'annotation' else '.txt'
+        )
+        results.append((kind, companion))
+    return results
 
 
 def _iter_raw_files(source_dir: Path, kind: str):
