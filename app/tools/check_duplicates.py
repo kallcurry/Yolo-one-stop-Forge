@@ -5,6 +5,7 @@ interactive raw-data audit in this module is a separate workflow so the two
 different meanings of "duplicate" do not get mixed together.
 """
 
+import time
 from pathlib import Path
 
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
@@ -21,8 +22,10 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -34,6 +37,8 @@ from app.models.dataset_duplicates import (
     DuplicateGroup,
     DuplicateScanResult,
     delete_duplicate_files,
+    delete_orphan_files,
+    move_to_backup,
     resolve_raw_dataset_root,
     scan_raw_duplicates,
 )
@@ -177,13 +182,16 @@ class RawDuplicateDialog(QDialog):
         self._thread = None
         self._result: DuplicateScanResult | None = None
         self._visible_groups: list[DuplicateGroup] = []
+        self._visible_orphans: list = []
+        self._visible_conflicts: list = []
+        self._backup_dir: Path | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(10)
 
         title_row = QHBoxLayout()
-        title = QLabel('全数据目录 · 原始数据重复审查')
+        title = QLabel('全数据目录 · 原始数据审查')
         title.setObjectName('duplicateTitle')
         title_row.addWidget(title)
         title_row.addStretch()
@@ -213,12 +221,32 @@ class RawDuplicateDialog(QDialog):
         self.metric_groups = self._metric(metrics, '重复组')
         self.metric_files = self._metric(metrics, '可删除副本')
         self.metric_bytes = self._metric(metrics, '可释放空间')
+        self.metric_orphans = self._metric(metrics, '孤儿文件')
+        self.metric_conflicts = self._metric(metrics, '同名多版本')
         layout.addLayout(metrics)
 
         self.summary = QLabel('尚未扫描')
         self.summary.setObjectName('duplicateSummary')
         self.summary.setWordWrap(True)
         layout.addWidget(self.summary)
+
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._build_duplicate_tab(), '重复数据')
+        self.tabs.addTab(self._build_orphan_tab(), '孤儿标注/标签')
+        self.tabs.addTab(self._build_conflict_tab(), '同名多版本')
+        layout.addWidget(self.tabs, 1)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        if default_root:
+            self._start_scan()
+
+    def _build_duplicate_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 8, 0, 0)
 
         filter_row = QHBoxLayout()
         filter_row.addWidget(QLabel('查看'))
@@ -291,13 +319,100 @@ class RawDuplicateDialog(QDialog):
         action_row.addWidget(self.btn_delete_all)
         action_row.addWidget(QLabel('删除动作只处理每组的重复成员，不会删除保留副本。'))
         action_row.addStretch()
-        buttons = QDialogButtonBox(QDialogButtonBox.Close)
-        buttons.rejected.connect(self.reject)
-        action_row.addWidget(buttons)
         layout.addLayout(action_row)
+        return widget
 
-        if default_root:
-            self._start_scan()
+    def _build_orphan_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 8, 0, 0)
+        hint = QLabel(
+            '标注 / 标签在同批次目录中找不到对应图片（图片可能在其他批次，'
+            '或此副本已无用）。可移出到备份目录，或删除到回收站。'
+        )
+        hint.setWordWrap(True)
+        hint.setObjectName('duplicateHint')
+        layout.addWidget(hint)
+
+        self.orphan_table = QTableWidget(0, 3)
+        self.orphan_table.setHorizontalHeaderLabels(['类型', '批次', '文件'])
+        self.orphan_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.orphan_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.orphan_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.orphan_table.setAlternatingRowColors(True)
+        self.orphan_table.verticalHeader().setVisible(False)
+        header = self.orphan_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.orphan_table.itemSelectionChanged.connect(self._update_orphan_buttons)
+        layout.addWidget(self.orphan_table, 1)
+
+        row = QHBoxLayout()
+        self.btn_orphan_backup = QPushButton('移出所选到备份目录')
+        self.btn_orphan_backup.setEnabled(False)
+        self.btn_orphan_backup.clicked.connect(self._move_selected_orphans)
+        row.addWidget(self.btn_orphan_backup)
+        self.btn_orphan_delete = QPushButton('删除所选到回收站')
+        self.btn_orphan_delete.setObjectName('dangerBtn')
+        self.btn_orphan_delete.setEnabled(False)
+        self.btn_orphan_delete.clicked.connect(self._delete_selected_orphans)
+        row.addWidget(self.btn_orphan_delete)
+        row.addWidget(QLabel('备份目录保留原相对路径，可随时找回。'))
+        row.addStretch()
+        layout.addLayout(row)
+        return widget
+
+    def _build_conflict_tab(self) -> QWidget:
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 8, 0, 0)
+        hint = QLabel(
+            '同一文件名在多个目录各有一份，且内容不同（例如审查副本与原批次版本）。'
+            '请在下方选择要保留的版本，其余可移出到备份或删除。'
+        )
+        hint.setWordWrap(True)
+        hint.setObjectName('duplicateHint')
+        layout.addWidget(hint)
+
+        self.conflict_table = QTableWidget(0, 4)
+        self.conflict_table.setHorizontalHeaderLabels(
+            ['类型', '文件名', '版本数', '所在目录']
+        )
+        self.conflict_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.conflict_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.conflict_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.conflict_table.setAlternatingRowColors(True)
+        self.conflict_table.verticalHeader().setVisible(False)
+        header = self.conflict_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.conflict_table.itemSelectionChanged.connect(self._show_selected_conflict)
+        layout.addWidget(self.conflict_table, 1)
+
+        detail_title = QLabel('版本详情（选择要保留的版本）')
+        detail_title.setObjectName('duplicateDetailTitle')
+        layout.addWidget(detail_title)
+        self.conflict_detail = QListWidget()
+        self.conflict_detail.setMinimumHeight(110)
+        self.conflict_detail.itemSelectionChanged.connect(self._update_conflict_buttons)
+        layout.addWidget(self.conflict_detail)
+
+        row = QHBoxLayout()
+        self.btn_conflict_backup = QPushButton('保留所选版本（其余移出到备份）')
+        self.btn_conflict_backup.setEnabled(False)
+        self.btn_conflict_backup.clicked.connect(lambda: self._resolve_conflict('backup'))
+        row.addWidget(self.btn_conflict_backup)
+        self.btn_conflict_delete = QPushButton('保留所选版本（其余删除到回收站）')
+        self.btn_conflict_delete.setObjectName('dangerBtn')
+        self.btn_conflict_delete.setEnabled(False)
+        self.btn_conflict_delete.clicked.connect(lambda: self._resolve_conflict('trash'))
+        row.addWidget(self.btn_conflict_delete)
+        row.addStretch()
+        layout.addLayout(row)
+        return widget
 
     @staticmethod
     def _metric(parent_layout: QHBoxLayout, caption: str) -> QLabel:
@@ -340,9 +455,16 @@ class RawDuplicateDialog(QDialog):
             )
         self._result = None
         self._visible_groups = []
+        self._visible_orphans = []
+        self._visible_conflicts = []
         self.group_table.setRowCount(0)
         self.detail_list.clear()
+        self.orphan_table.setRowCount(0)
+        self.conflict_table.setRowCount(0)
+        self.conflict_detail.clear()
         self._set_action_enabled(False)
+        self._update_orphan_buttons()
+        self._update_conflict_buttons()
         self.btn_scan.setEnabled(False)
         self.status.setText('正在扫描并计算文件指纹，请稍候...')
         self._thread = _RawDuplicateScanThread(root, self)
@@ -367,9 +489,12 @@ class RawDuplicateDialog(QDialog):
         self.metric_groups.setText(str(result.duplicate_group_count))
         self.metric_files.setText(str(result.duplicate_file_count))
         self.metric_bytes.setText(_format_bytes(result.reclaimable_bytes))
+        self.metric_orphans.setText(str(result.orphan_count))
+        self.metric_conflicts.setText(str(result.name_conflict_count))
         self.summary.setText(
             f'已扫描 {result.root} · 发现 {result.duplicate_group_count} 个重复组，'
-            f'共 {result.duplicate_file_count} 个可删除副本。'
+            f'共 {result.duplicate_file_count} 个可删除副本；'
+            f'孤儿文件 {result.orphan_count} 个，同名多版本 {result.name_conflict_count} 组。'
         )
         if result.errors:
             self.summary.setText(
@@ -380,6 +505,8 @@ class RawDuplicateDialog(QDialog):
             else '扫描完成：请选择重复组查看详情。'
         )
         self._populate_table()
+        self._populate_orphan_table()
+        self._populate_conflict_table()
 
     def _on_scan_failed(self, message: str):
         self._result = None
@@ -430,6 +557,198 @@ class RawDuplicateDialog(QDialog):
         for path in group.duplicates:
             self.detail_list.addItem(f'删除：{self._relative_path(path)}')
         self.btn_delete_group.setEnabled(True)
+
+    # ---- orphan / name-conflict workflows ----
+
+    def _populate_orphan_table(self):
+        self.orphan_table.setRowCount(0)
+        self._visible_orphans = list(self._result.orphans) if self._result else []
+        self.orphan_table.setRowCount(len(self._visible_orphans))
+        for row, record in enumerate(self._visible_orphans):
+            values = (
+                self._KIND_LABELS.get(record.kind, record.kind),
+                record.batch_dir or '(根目录)',
+                self._relative_path(record.path),
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setData(Qt.UserRole, row)
+                self.orphan_table.setItem(row, column, item)
+        self._update_orphan_buttons()
+
+    def _update_orphan_buttons(self):
+        has_rows = bool(self.orphan_table.selectionModel().selectedRows())
+        self.btn_orphan_backup.setEnabled(has_rows and bool(self._visible_orphans))
+        self.btn_orphan_delete.setEnabled(has_rows and bool(self._visible_orphans))
+
+    def _selected_orphan_paths(self) -> list:
+        if self._result is None:
+            return []
+        rows = self.orphan_table.selectionModel().selectedRows()
+        return [self._visible_orphans[row.row()].path for row in rows]
+
+    def _move_selected_orphans(self):
+        if self._result is None:
+            return
+        paths = self._selected_orphan_paths()
+        if not paths:
+            return
+        backup = self._ensure_backup_dir()
+        if backup is None:
+            return
+        answer = QMessageBox.warning(
+            self,
+            '确认移出孤儿文件',
+            f'将移出 {len(paths)} 个孤儿文件到备份目录：\n{backup}\n'
+            '（保留原相对路径，可随时找回）',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        result = move_to_backup(paths, self._result.root, backup)
+        self._report_action(
+            f'已移出 {len(result.moved)} 个孤儿文件到备份目录。',
+            result.errors,
+        )
+        self._start_scan()
+
+    def _delete_selected_orphans(self):
+        if self._result is None:
+            return
+        paths = self._selected_orphan_paths()
+        if not paths:
+            return
+        answer = QMessageBox.warning(
+            self,
+            '确认删除孤儿文件',
+            f'将删除 {len(paths)} 个孤儿文件（进入系统回收站，'
+            '若系统不支持则直接删除）。\n请确认这些文件已无用。',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        result = delete_orphan_files(paths, self._result.root)
+        self._report_action(
+            f'已删除 {len(result.deleted)} 个孤儿文件。',
+            result.errors,
+        )
+        self._start_scan()
+
+    def _populate_conflict_table(self):
+        self.conflict_table.setRowCount(0)
+        self.conflict_detail.clear()
+        self._visible_conflicts = (
+            list(self._result.name_conflicts) if self._result else []
+        )
+        self.conflict_table.setRowCount(len(self._visible_conflicts))
+        for row, conflict in enumerate(self._visible_conflicts):
+            directories = sorted({
+                str(member.path.parent)
+                for member in conflict.members
+            })
+            values = (
+                self._KIND_LABELS.get(conflict.kind, conflict.kind),
+                conflict.stem,
+                str(len(conflict.members)),
+                '、'.join(self._relative_path(Path(path)) for path in directories),
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setData(Qt.UserRole, row)
+                self.conflict_table.setItem(row, column, item)
+        self._update_conflict_buttons()
+
+    def _show_selected_conflict(self):
+        rows = self.conflict_table.selectionModel().selectedRows()
+        self.conflict_detail.clear()
+        self._update_conflict_buttons()
+        if not rows or self._result is None:
+            return
+        conflict = self._visible_conflicts[rows[0].row()]
+        for index, member in enumerate(conflict.members):
+            item = QListWidgetItem(
+                f'{index + 1}. [{member.digest[:12]}] '
+                f'{self._relative_path(member.path)}（{_format_bytes(member.size)}）'
+            )
+            item.setData(Qt.UserRole, index)
+            self.conflict_detail.addItem(item)
+        self._update_conflict_buttons()
+
+    def _update_conflict_buttons(self):
+        has_member = bool(self.conflict_detail.selectedItems())
+        self.btn_conflict_backup.setEnabled(has_member)
+        self.btn_conflict_delete.setEnabled(has_member)
+
+    def _resolve_conflict(self, mode: str):
+        if self._result is None:
+            return
+        rows = self.conflict_table.selectionModel().selectedRows()
+        if not rows:
+            return
+        conflict = self._visible_conflicts[rows[0].row()]
+        selected = self.conflict_detail.selectedItems()
+        if not selected:
+            return
+        keeper = conflict.members[selected[0].data(Qt.UserRole)]
+        others = [m.path for m in conflict.members if m is not keeper]
+        if not others:
+            return
+        if mode == 'backup':
+            backup = self._ensure_backup_dir()
+            if backup is None:
+                return
+            answer = QMessageBox.warning(
+                self,
+                '确认保留版本',
+                f'保留：{self._relative_path(keeper.path)}\n\n'
+                f'其余 {len(others)} 个版本将移出到备份目录：\n{backup}\n'
+                '（保留原相对路径，可随时找回）',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+            result = move_to_backup(others, self._result.root, backup)
+            self._report_action(
+                f'已保留所选版本，移出 {len(result.moved)} 个版本到备份目录。',
+                result.errors,
+            )
+        else:
+            answer = QMessageBox.warning(
+                self,
+                '确认保留版本',
+                f'保留：{self._relative_path(keeper.path)}\n\n'
+                f'其余 {len(others)} 个版本将删除（进入系统回收站，'
+                '若系统不支持则直接删除）。',
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+            result = delete_orphan_files(others, self._result.root)
+            self._report_action(
+                f'已保留所选版本，删除 {len(result.deleted)} 个版本。',
+                result.errors,
+            )
+        self._start_scan()
+
+    def _ensure_backup_dir(self):
+        if self._result is None:
+            return None
+        if self._backup_dir is None:
+            self._backup_dir = (
+                Path(self._result.root)
+                / f'duplicate_review_backup_{time.strftime("%Y%m%d-%H%M%S")}'
+            )
+        return self._backup_dir
+
+    def _report_action(self, message: str, errors: tuple):
+        parts = [message]
+        if errors:
+            parts.append('部分文件未成功：\n' + '\n'.join(errors[:8]))
+        QMessageBox.warning(self, '处理完成', '\n'.join(parts))
 
     def _delete_selected_group(self):
         rows = self.group_table.selectionModel().selectedRows()

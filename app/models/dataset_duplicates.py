@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
@@ -57,6 +58,38 @@ class DuplicateGroup:
 
 
 @dataclass(frozen=True)
+class OrphanRecord:
+    """An annotation/label file with no same-stem image in its batch dir."""
+
+    kind: str
+    path: Path
+    batch_dir: str = ''
+
+
+@dataclass(frozen=True)
+class NameConflictMember:
+    """One location of a same-stem annotation/label file."""
+
+    path: Path
+    digest: str
+    size: int
+
+
+@dataclass(frozen=True)
+class NameConflictGroup:
+    """Same stem in several directories with **different** byte content.
+
+    Name conflicts are reported per kind (annotation or label) and never when
+    every location is byte-identical: identical copies already form duplicate
+    groups and are handled by the duplicate workflows.
+    """
+
+    kind: str
+    stem: str
+    members: tuple[NameConflictMember, ...]
+
+
+@dataclass(frozen=True)
 class DuplicateScanResult:
     """Immutable result returned by :func:`scan_raw_duplicates`."""
 
@@ -64,6 +97,8 @@ class DuplicateScanResult:
     scanned_counts: dict[str, int]
     groups: dict[str, tuple[DuplicateGroup, ...]]
     errors: tuple[str, ...] = ()
+    orphans: tuple[OrphanRecord, ...] = ()
+    name_conflicts: tuple[NameConflictGroup, ...] = ()
 
     @property
     def all_groups(self) -> tuple[DuplicateGroup, ...]:
@@ -85,6 +120,14 @@ class DuplicateScanResult:
     def reclaimable_bytes(self) -> int:
         return sum(group.reclaimable_bytes for group in self.all_groups)
 
+    @property
+    def orphan_count(self) -> int:
+        return len(self.orphans)
+
+    @property
+    def name_conflict_count(self) -> int:
+        return len(self.name_conflicts)
+
 
 @dataclass(frozen=True)
 class DeleteResult:
@@ -93,6 +136,14 @@ class DeleteResult:
     deleted: tuple[Path, ...]
     errors: tuple[str, ...]
     skipped: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class MoveResult:
+    """Outcome of moving files into a backup directory."""
+
+    moved: tuple[Path, ...]
+    errors: tuple[str, ...]
 
 
 def scan_raw_duplicates(
@@ -120,6 +171,8 @@ def scan_raw_duplicates(
     counts = {kind: 0 for _name, kind in RAW_DATA_DIRS}
     errors: list[str] = []
     discovered = 0
+    all_paths_by_kind: dict[str, list[Path]] = {kind: [] for _n, kind in RAW_DATA_DIRS}
+    image_stems_by_dir: dict[str, set[str]] = {}
 
     for directory_name, kind in RAW_DATA_DIRS:
         source_dir = dataset_root / directory_name
@@ -134,9 +187,18 @@ def scan_raw_duplicates(
 
             counts[kind] += 1
             discovered += 1
+            all_paths_by_kind[kind].append(path)
             size_buckets[kind].setdefault(stat.st_size, []).append(
                 (path, stat.st_mtime_ns)
             )
+
+    # Index image stems by batch directory: orphan checks need the same-batch
+    # sibling.  ``dir_key`` is the relative path between the top-level raw
+    # directory and the file name, e.g. ``batch-a/frames``.
+    for path in all_paths_by_kind.get('image', ()):
+        parts = path.relative_to(dataset_root).as_posix().split('/')
+        dir_key = '/'.join(parts[1:-1]) if len(parts) >= 2 else ''
+        image_stems_by_dir.setdefault(dir_key, set()).add(Path(parts[-1]).stem)
 
     if progress:
         progress(discovered, discovered, '已完成文件枚举，正在筛选相同大小文件')
@@ -217,7 +279,67 @@ def scan_raw_duplicates(
             )
         )
 
-    return DuplicateScanResult(dataset_root, counts, groups, tuple(errors))
+    orphans = _scan_orphans(all_paths_by_kind, dataset_root, image_stems_by_dir)
+    name_conflicts = _scan_name_conflicts(all_paths_by_kind, dataset_root)
+
+    return DuplicateScanResult(
+        dataset_root, counts, groups, tuple(errors),
+        orphans=orphans, name_conflicts=name_conflicts,
+    )
+
+
+def _scan_orphans(
+    all_paths_by_kind: dict[str, list[Path]],
+    dataset_root: Path,
+    image_stems_by_dir: dict[str, set[str]],
+) -> tuple[OrphanRecord, ...]:
+    """Report annotation/label files without a same-batch image sibling."""
+
+    records: list[OrphanRecord] = []
+    for directory_name, kind in RAW_DATA_DIRS:
+        if kind == 'image':
+            continue
+        for path in all_paths_by_kind.get(kind, ()):
+            parts = path.relative_to(dataset_root).as_posix().split('/')
+            dir_key = '/'.join(parts[1:-1]) if len(parts) >= 3 else ''
+            if path.stem not in image_stems_by_dir.get(dir_key, ()):
+                records.append(OrphanRecord(kind, path, dir_key))
+    return tuple(sorted(records, key=lambda item: item.path.as_posix()))
+
+
+def _scan_name_conflicts(
+    all_paths_by_kind: dict[str, list[Path]],
+    dataset_root: Path,
+) -> tuple[NameConflictGroup, ...]:
+    """Report same-stem files living in different directories with different
+    content.  Byte-identical locations stay out: they belong to duplicate
+    groups and are already handled by the duplicate workflows."""
+
+    groups: list[NameConflictGroup] = []
+    for directory_name, kind in RAW_DATA_DIRS:
+        if kind == 'image':
+            continue
+        by_stem: dict[str, list[Path]] = {}
+        for path in all_paths_by_kind.get(kind, ()):
+            by_stem.setdefault(path.stem, []).append(path)
+        for stem, paths in sorted(by_stem.items()):
+            if len(paths) < 2:
+                continue
+            members: list[NameConflictMember] = []
+            for path in sorted(
+                paths, key=lambda item: _relative_key(item, dataset_root)
+            ):
+                try:
+                    stat = path.stat()
+                    digest = _cached_sha256(path, stat.st_size, stat.st_mtime_ns)
+                except (OSError, PermissionError):
+                    continue
+                members.append(NameConflictMember(path, digest, stat.st_size))
+            if len(members) < 2:
+                continue
+            if len({member.digest for member in members}) > 1:
+                groups.append(NameConflictGroup(kind, stem, tuple(members)))
+    return tuple(groups)
 
 
 def resolve_raw_dataset_root(path: str | Path) -> Path:
@@ -361,6 +483,77 @@ def delete_duplicate_files(
                     _remove_one(companion, comp_group, label='联动删除 ')
 
     return DeleteResult(tuple(deleted), tuple(errors), tuple(skipped))
+
+
+def delete_orphan_files(
+    paths: Iterable[Path],
+    root: str | Path,
+    *,
+    use_trash: bool = True,
+) -> DeleteResult:
+    """Delete orphan annotation/label files with the same safety guards used
+    by duplicate deletion: targets must stay under the dataset root, be
+    regular files and not symlinks."""
+
+    root_resolved = Path(root).resolve()
+    deleted: list[Path] = []
+    errors: list[str] = []
+    for raw_path in paths:
+        path = Path(raw_path).expanduser()
+        try:
+            resolved = path.resolve()
+            resolved.relative_to(root_resolved)
+        except (OSError, ValueError):
+            errors.append(f'拒绝删除（不在数据根目录内）: {path}')
+            continue
+        if not resolved.is_file() or resolved.is_symlink():
+            errors.append(f'文件不存在或不是普通文件: {path}')
+            continue
+        try:
+            _remove_file(resolved, use_trash=use_trash)
+            deleted.append(resolved)
+        except (OSError, PermissionError) as exc:
+            errors.append(f'删除失败 {resolved}: {exc}')
+    return DeleteResult(tuple(deleted), tuple(errors))
+
+
+def move_to_backup(
+    paths: Iterable[Path],
+    root: str | Path,
+    backup_dir: str | Path,
+) -> MoveResult:
+    """Move files into ``backup_dir`` preserving their relative layout.
+
+    Sources must stay under the dataset root and must be regular non-symlink
+    files; an existing backup target is refused instead of overwritten.
+    """
+
+    root_resolved = Path(root).resolve()
+    backup = Path(backup_dir).expanduser().resolve()
+    moved: list[Path] = []
+    errors: list[str] = []
+    for raw_path in paths:
+        path = Path(raw_path).expanduser()
+        try:
+            resolved = path.resolve()
+            rel = resolved.relative_to(root_resolved)
+        except (OSError, ValueError):
+            errors.append(f'拒绝移出（不在数据根目录内）: {path}')
+            continue
+        if not resolved.is_file() or resolved.is_symlink():
+            errors.append(f'文件不存在或不是普通文件: {path}')
+            continue
+        target = backup / rel
+        try:
+            if target.exists():
+                errors.append(f'备份目标已存在，跳过: {target}')
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(resolved), str(target))
+            moved.append(resolved)
+        except (OSError, PermissionError) as exc:
+            errors.append(f'移出失败 {resolved}: {exc}')
+    return MoveResult(tuple(moved), tuple(errors))
 
 
 def _companion_candidates(image_path: Path, root: Path):
