@@ -1,0 +1,34 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+venv/
+.venv/
+
+# --- Local deployment configuration and IDE state ---
+deployment/local.env
+.vscode/
+.idea/
+*.swp
+
+# --- Downloaded models and generated training state ---
+models/**/*.pt
+models/**/*.onnx
+models/**/*.engine
+training/runs/
+training/tasks/
+training/task_registry.sqlite3*
+training_runs/
+
+# --- Generated reports and build outputs ---
+reports/
+dist/
+build/
+
+# --- Runtime and cache ---
+.runtime/
+*.log
+
+# --- One-off historical artifacts with machine-specific paths ---
+labelme_stats_report.md
