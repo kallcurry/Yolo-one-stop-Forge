@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QColor, QPixmap, QPainter
+from PyQt5.QtGui import QColor, QPalette, QPixmap, QPainter
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -164,26 +164,35 @@ class InferenceCenterView(QWidget):
         source_caption = QLabel('输入源')
         source_caption.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         source_row.addWidget(source_caption)
+
+        # 输入源控件容器：隐藏项不参与布局，始终左对齐
+        self.source_container = QWidget()
+        self.source_container.setObjectName('inferSourceGroup')
+        container_layout = QHBoxLayout(self.source_container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(8)
         self.combo_source = QComboBox()
         self.combo_source.setObjectName('trainingCombo')
         for kind, label in SOURCE_KINDS:
             self.combo_source.addItem(label, kind)
         self.combo_source.currentIndexChanged.connect(self._on_source_changed)
-        source_row.addWidget(self.combo_source)
+        container_layout.addWidget(self.combo_source)
         self.spin_camera = QSpinBox()
         self.spin_camera.setObjectName('trainingSpin')
         self.spin_camera.setRange(0, 8)
         self.spin_camera.setFixedWidth(120)
-        source_row.addWidget(self.spin_camera)
+        container_layout.addWidget(self.spin_camera)
         self.edit_source_path = QLineEdit()
         self.edit_source_path.setObjectName('trainingEdit')
         self.edit_source_path.setPlaceholderText('选择视频文件 / 图片目录 / RTSP 地址')
-        source_row.addWidget(self.edit_source_path, 1)
+        container_layout.addWidget(self.edit_source_path, 1)
         btn_source = QPushButton('选择')
         btn_source.setObjectName('fileOpBtn')
         btn_source.clicked.connect(self._pick_source_path)
         self.btn_source = btn_source
-        source_row.addWidget(btn_source)
+        container_layout.addWidget(btn_source)
+        container_layout.addStretch(1)
+        source_row.addWidget(self.source_container, 1)
         panel_layout.addLayout(source_row)
 
         param_row = QHBoxLayout()
@@ -291,8 +300,15 @@ class InferenceCenterView(QWidget):
         self.legend_scroll.setWidgetResizable(True)
         self.legend_scroll.setFrameShape(QFrame.NoFrame)
         self.legend_scroll.viewport().setAutoFillBackground(False)
+        legend_dark = QPalette(self.palette())
+        legend_dark.setColor(QPalette.Window, QColor(8, 16, 25))
+        legend_dark.setColor(QPalette.Base, QColor(8, 16, 25))
+        legend_dark.setColor(QPalette.AlternateBase, QColor(18, 37, 52))
+        self.legend_scroll.setPalette(legend_dark)
         self.legend_host = QWidget()
+        self.legend_host.setObjectName('inferLegendHost')
         self.legend_host.setAutoFillBackground(False)
+        self.legend_host.setPalette(legend_dark)
         self.legend_grid = QGridLayout(self.legend_host)
         self.legend_grid.setContentsMargins(0, 2, 0, 2)
         self.legend_grid.setSpacing(6)
