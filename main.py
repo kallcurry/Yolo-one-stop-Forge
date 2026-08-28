@@ -123,6 +123,13 @@ def main():
     )
     model_manager.evaluate_requested.connect(ctrl.open_evaluation)
     model_manager.inference_requested.connect(ctrl.open_inference)
+    # 模型管理仓库与评估/推理中心联动：仓库切换后模型列表同步
+    model_manager.directory_changed.connect(
+        lambda repo: (
+            evaluation_manager.set_model_repository(repo),
+            inference_center.set_model_repository(repo),
+        )
+    )
 
     # Annotation mode: sync button + A-key shortcut ↔ viewer
     def _on_annotation_cycle():

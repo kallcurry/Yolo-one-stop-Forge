@@ -23,6 +23,7 @@ from PyQt5.QtWidgets import (
 )
 
 from app.models.inference_worker import InferenceWorker
+from app.utils import discover_available_models
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 INFERENCE_ROOT = PROJECT_ROOT / 'reports' / 'inference'
@@ -83,6 +84,7 @@ class InferenceCenterView(QWidget):
         self._model_factory = model_factory  # injected for tests
         self._model = None
         self._record_path: Path | None = None
+        self._extra_repo = ''
 
         palette = self.palette()
         from PyQt5.QtGui import QPalette
@@ -172,6 +174,7 @@ class InferenceCenterView(QWidget):
         btn_source = QPushButton('选择')
         btn_source.setObjectName('fileOpBtn')
         btn_source.clicked.connect(self._pick_source_path)
+        self.btn_source = btn_source
         source_row.addWidget(btn_source)
         panel_layout.addLayout(source_row)
 
@@ -258,6 +261,7 @@ class InferenceCenterView(QWidget):
         kind = self.combo_source.currentData()
         self.spin_camera.setVisible(kind == 'camera')
         self.edit_source_path.setVisible(kind != 'camera')
+        self.btn_source.setVisible(kind != 'camera')
         self.btn_browse_hint()
 
     def btn_browse_hint(self):
@@ -279,26 +283,19 @@ class InferenceCenterView(QWidget):
     def _refresh_model_choices(self, keep_current: str = ''):
         current = keep_current or self.combo_model.currentText()
         self.combo_model.clear()
-        candidates: list[Path] = []
-        runs_root = PROJECT_ROOT / 'training' / 'runs'
-        if runs_root.is_dir():
-            for best in runs_root.glob('*/weights/best.pt'):
-                candidates.append(best)
-            for last in runs_root.glob('*/weights/last.pt'):
-                if last not in candidates:
-                    candidates.append(last)
-        models_root = PROJECT_ROOT / 'models'
-        if models_root.is_dir():
-            for weight in models_root.glob('*.pt'):
-                candidates.append(weight)
-        seen = set()
-        for path in sorted(candidates, key=lambda p: p.name):
-            if str(path) in seen:
-                continue
-            seen.add(str(path))
-            label = path.parent.parent.name if path.parent.name == 'weights' else path.name
+        for path in discover_available_models(self._extra_repo):
+            label = (
+                path.parent.parent.name if path.parent.name == 'weights'
+                else path.name
+            )
             self.combo_model.addItem(label, str(path))
         self.combo_model.setEditText(current)
+
+    def set_model_repository(self, repo_path: str):
+        """Link the model-management repository into this view's choices."""
+        self._extra_repo = str(repo_path or '')
+        if self._worker is None:
+            self._refresh_model_choices()
 
     def _browse_model(self):
         path, _f = QFileDialog.getOpenFileName(

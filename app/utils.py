@@ -29,3 +29,37 @@ def trace(func):
             log(f'✗ {name} ERROR: {e}')
             raise
     return wrapper
+
+
+def discover_available_models(extra_repo=None):
+    """Discover .pt weights from training runs, models/ and an optional repo.
+
+    The training runner writes runs/<project>/<run>/weights/best.pt (two
+    levels), so a plain ``*/weights`` glob misses them; this walks recursively
+    and also picks up flat weights in ``models/``.
+    """
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parents[1]
+    roots = [project_root / 'training' / 'runs', project_root / 'models']
+    if extra_repo:
+        roots.append(Path(str(extra_repo)).expanduser())
+
+    found = {}
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for weights_dir in root.rglob('weights'):
+            if not weights_dir.is_dir():
+                continue
+            for path in sorted(weights_dir.iterdir()):
+                if path.is_file() and path.suffix == '.pt':
+                    found.setdefault(str(path.resolve()), path)
+        if root.name == 'models':
+            for path in sorted(root.iterdir()):
+                if path.is_file() and path.suffix == '.pt':
+                    found.setdefault(str(path.resolve()), path)
+    return [
+        found[key]
+        for key in sorted(found, key=lambda item: (found[item].name, item))
+    ]

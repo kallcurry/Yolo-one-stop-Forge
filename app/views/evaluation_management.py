@@ -45,6 +45,7 @@ from app.models.evaluation_task_registry import (
     EvaluationTaskRecord,
     EvaluationTaskRegistry,
 )
+from app.utils import discover_available_models
 from app.views.tool_dialog import stored_dataset_path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -88,6 +89,7 @@ class EvaluationManagementView(QWidget):
         self._selected_task: EvaluationTaskRecord | None = None
         self._records: list[EvaluationTaskRecord] = []
         self._visible_cards: list[QFrame] = []
+        self._extra_repo = ''
 
         # 显式深色调色板：避免顶层/滚动区使用平台默认白底
         palette = self.palette()
@@ -609,24 +611,11 @@ class EvaluationManagementView(QWidget):
     def refresh_model_choices(self, keep_current: str = ''):
         current = keep_current or self.combo_model.currentText()
         self.combo_model.clear()
-        candidates: list[Path] = []
-        runs_root = PROJECT_ROOT / 'training' / 'runs'
-        if runs_root.is_dir():
-            for best in runs_root.glob('*/weights/best.pt'):
-                candidates.append(best)
-            for last in runs_root.glob('*/weights/last.pt'):
-                if last not in candidates:
-                    candidates.append(last)
-        models_root = PROJECT_ROOT / 'models'
-        if models_root.is_dir():
-            for weight in models_root.glob('*.pt'):
-                candidates.append(weight)
-        seen = set()
-        for path in sorted(candidates, key=lambda p: p.name):
-            if str(path) in seen:
-                continue
-            seen.add(str(path))
-            label = path.parent.parent.name if path.parent.name == 'weights' else path.name
+        for path in discover_available_models(self._extra_repo):
+            label = (
+                path.parent.parent.name if path.parent.name == 'weights'
+                else path.name
+            )
             self.combo_model.addItem(label, str(path))
         self.combo_model.setEditText(current)
         if not self.edit_model_label.text().strip() and current:
@@ -634,6 +623,11 @@ class EvaluationManagementView(QWidget):
                 self.edit_model_label.setText(Path(current).parent.parent.name)
             except (OSError, AttributeError):
                 pass
+
+    def set_model_repository(self, repo_path: str):
+        """Link the model-management repository into this view's choices."""
+        self._extra_repo = str(repo_path or '')
+        self.refresh_model_choices()
 
     def _selected_model(self) -> tuple[Path, str]:
         text = self.combo_model.currentText().strip()
