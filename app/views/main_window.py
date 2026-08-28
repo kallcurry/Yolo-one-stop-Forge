@@ -330,6 +330,7 @@ class MainWindow(QMainWindow):
             ('model', '模型管理', '模型管理', True),
             ('train', '训练中心', '训练中心', True),
             ('eval', '评估中心', '评估中心', True),
+            ('infer', '推理中心', '推理中心', True),
         ]
         for idx, (module_id, label, tooltip, enabled) in enumerate(modules):
             btn = QPushButton(label)
@@ -476,6 +477,17 @@ class MainWindow(QMainWindow):
         self._module_pages['eval'] = widget
         self.workspace_stack.addWidget(widget)
         if self._current_module == 'eval':
+            self.workspace_stack.setCurrentWidget(widget)
+
+    def set_inference_center(self, widget: QWidget):
+        """Install the inference workbench as a peer platform module."""
+        previous = self._module_pages.get('infer')
+        if previous is not None:
+            self.workspace_stack.removeWidget(previous)
+            previous.setParent(None)
+        self._module_pages['infer'] = widget
+        self.workspace_stack.addWidget(widget)
+        if self._current_module == 'infer':
             self.workspace_stack.setCurrentWidget(widget)
 
     # ---- Menus ----
@@ -1052,6 +1064,7 @@ class MainWindow(QMainWindow):
                 'model': '模型管理',
                 'train': '训练中心',
                 'eval': '评估中心',
+                'infer': '推理中心',
             }
             self.status_bar.showMessage(
                 f'已切换到{module_names.get(module_id, module_id)}', 1800

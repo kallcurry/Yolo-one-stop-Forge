@@ -65,7 +65,8 @@ class AppController(QObject):
 
     def __init__(self, main_window, dir_tree, image_viewer,
                  detail_panel, file_list_panel, model_manager=None,
-                 training_manager=None, evaluation_manager=None):
+                 training_manager=None, evaluation_manager=None,
+                 inference_manager=None):
         super().__init__()
         self._win = main_window
         self._tree = dir_tree
@@ -75,6 +76,7 @@ class AppController(QObject):
         self._model_manager = model_manager
         self._training_manager = training_manager
         self._evaluation_manager = evaluation_manager
+        self._inference_manager = inference_manager
 
         self._images: list[Path] = []
         self._current_index: int = -1
@@ -296,6 +298,15 @@ class AppController(QObject):
         self._win.select_module('eval')
         self._win.status_bar.showMessage(
             f'已为 {model_label} 打开评估中心', 4000
+        )
+
+    def open_inference(self, model_path: str, model_label: str):
+        """Prefill the inference workbench for a model and switch module."""
+        if self._inference_manager is not None:
+            self._inference_manager.prefill_model(model_path, model_label)
+        self._win.select_module('infer')
+        self._win.status_bar.showMessage(
+            f'已为 {model_label} 打开推理中心', 4000
         )
 
     # Actions (public, connected from MainWindow)

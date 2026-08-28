@@ -14,6 +14,7 @@ from app.views.main_window import MainWindow
 from app.views.model_management import ModelManagementView
 from app.views.training_management import TrainingManagementView
 from app.views.evaluation_management import EvaluationManagementView
+from app.views.inference_center import InferenceCenterView
 from app.views.dir_tree import DirTreePanel
 from app.views.image_viewer import ImageViewer
 from app.views.detail_panel import DetailPanel
@@ -71,6 +72,7 @@ def main():
     model_manager = ModelManagementView()
     training_manager = TrainingManagementView()
     evaluation_manager = EvaluationManagementView()
+    inference_center = InferenceCenterView()
 
     # Embed file list into detail panel (right side)
     detail.set_file_list(file_list)
@@ -88,6 +90,7 @@ def main():
     win.set_model_manager(model_manager)
     win.set_training_manager(training_manager)
     win.set_evaluation_manager(evaluation_manager)
+    win.set_inference_center(inference_center)
 
     # Set default splitter ratios: tree 20%, image 55%, detail 25%
     win.top_splitter.setSizes([280, 770, 350])
@@ -95,9 +98,10 @@ def main():
     # Create controller — wires everything
     ctrl = AppController(
         win, dir_tree, viewer, detail, file_list, model_manager,
-        training_manager, evaluation_manager,
+        training_manager, evaluation_manager, inference_center,
     )
     model_manager.evaluate_requested.connect(ctrl.open_evaluation)
+    model_manager.inference_requested.connect(ctrl.open_inference)
 
     # Annotation mode: sync button + A-key shortcut ↔ viewer
     def _on_annotation_cycle():

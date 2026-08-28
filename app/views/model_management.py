@@ -374,6 +374,7 @@ class ModelManagementView(QWidget):
     dataset_source_requested = pyqtSignal(object, object)
     directory_changed = pyqtSignal(str)
     evaluate_requested = pyqtSignal(str, str)
+    inference_requested = pyqtSignal(str, str)
 
     def __init__(self, parent=None, load_saved_directory: bool = True):
         super().__init__(parent)
@@ -645,6 +646,11 @@ class ModelManagementView(QWidget):
         self.btn_go_eval.setToolTip('在评估中心为该模型选择测试批次并运行评估')
         self.btn_go_eval.clicked.connect(self._emit_evaluate)
         heading.addWidget(self.btn_go_eval)
+        self.btn_go_infer = QPushButton('实时推理')
+        self.btn_go_infer.setObjectName('successBtn')
+        self.btn_go_infer.setToolTip('在推理中心用该模型连接实时画面预览')
+        self.btn_go_infer.clicked.connect(self._emit_inference)
+        heading.addWidget(self.btn_go_infer)
         self.lbl_evaluation = QLabel('')
         self.lbl_evaluation.setObjectName('duplicateScope')
         self.lbl_evaluation.setWordWrap(True)
@@ -1265,21 +1271,27 @@ class ModelManagementView(QWidget):
             self.show_library()
 
     def _emit_evaluate(self):
+        weight_path = self._resolve_weight_path()
+        if weight_path:
+            self.evaluate_requested.emit(weight_path, self._current_record.name)
+
+    def _emit_inference(self):
+        weight_path = self._resolve_weight_path()
+        if weight_path:
+            self.inference_requested.emit(weight_path, self._current_record.name)
+
+    def _resolve_weight_path(self) -> str:
         record = getattr(self, '_current_record', None)
         if record is None:
-            return
-        weight_path = ''
+            return ''
         for artifact in record.artifacts:
             if str(artifact.path).endswith('.pt'):
-                weight_path = str(artifact.path)
-                break
-        if not weight_path:
-            candidates = [
-                str(path) for path in Path(record.path).rglob('*.pt')
-                if path.is_file()
-            ]
-            weight_path = candidates[-1] if candidates else record.path
-        self.evaluate_requested.emit(weight_path, record.name)
+                return str(artifact.path)
+        candidates = [
+            str(path) for path in Path(record.path).rglob('*.pt')
+            if path.is_file()
+        ]
+        return candidates[-1] if candidates else record.path
 
     def _show_model_details(self, record: ModelRecord, origin: str | None = None):
         if origin in {'library', 'comparison'}:
