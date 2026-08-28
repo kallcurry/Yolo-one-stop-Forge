@@ -7,7 +7,7 @@ import os
 import sys
 from pathlib import Path
 
-from PyQt5.QtCore import QPointF, QProcess, Qt, QTimer, QEvent, pyqtSignal
+from PyQt5.QtCore import QPointF, QProcess, QRectF, Qt, QTimer, QEvent, pyqtSignal
 from PyQt5.QtGui import QColor, QPainter, QPen
 from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import (
@@ -152,21 +152,23 @@ class CompareBarChart(QWidget):
                 painter.setBrush(Qt.NoBrush)
                 painter.drawRect(rect[0] - 2, rect[1] - 2,
                                  rect[2] + 4, rect[3] + 4)
-            # 数值
+            # 数值（水平居中于柱）
             label_y = baseline_y - half - 8 if value >= 0 else baseline_y + height + 14
             painter.setPen(QColor(221, 242, 255))
             painter.drawText(
-                QPointF(x + bar_w / 2, label_y),
+                QRectF(x, label_y - 16, bar_w, 16),
+                Qt.AlignHCenter | Qt.AlignBottom,
                 f'{value:.4f}',
             )
-            # 名称（截断）
+            # 名称（截断 + 水平居中于柱，宽区容纳长名）
             short = str(name)
             if len(short) > 16:
                 short = short[:15] + '…'
             painter.setPen(QColor(134, 175, 194) if index != self._selected
                            else QColor(255, 255, 255))
             painter.drawText(
-                QPointF(x + bar_w / 2, margin + chart_h + 20),
+                QRectF(x - 200, margin + chart_h + 8, bar_w + 400, 20),
+                Qt.AlignHCenter,
                 short,
             )
         painter.end()
