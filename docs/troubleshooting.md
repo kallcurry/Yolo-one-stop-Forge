@@ -18,6 +18,12 @@ sudo apt install libxcb-cursor0 libxcb-xinerama0 libxkbcommon-x11-0 libgl1 libeg
 
 不要把 OpenCV 的 `cv2/qt/plugins` 手工配置为全局 `QT_QPA_PLATFORM_PLUGIN_PATH`。优先通过 `deployment/local.env` 指定标注工具解释器，并使用 `deployment/run.sh` 启动平台。
 
+**直接 `python main.py` 启动失败（`Could not load the Qt platform plugin "xcb"`，路径指向 `cv2/qt/plugins`）**：
+
+- 原因：shell 环境残留了指向 OpenCV Qt 插件的 `QT_QPA_PLATFORM_PLUGIN_PATH`/`QT_PLUGIN_PATH`，与 PyQt5 不兼容。
+- 立即修复：`unset QT_QPA_PLATFORM_PLUGIN_PATH QT_PLUGIN_PATH`，然后重新启动。
+- 自愈机制：平台启动时会自动检测并移除指向 `cv2` 的 Qt 插件路径（`sanitize_qt_environment`），无显示环境时自动回退 offscreen——建议始终使用 `bash deployment/run.sh`，新版本即使 shell 被污染也能启动。
+
 ### 数据目录存在，但某任务显示没有标注
 
 检查当前任务模板的 `annotation_dir`。例如 Pose 默认 `annotations`，Detection 默认 `annotations-det`。目录不存在时属于真实的数据状态，不会自动借用其他任务标注。
