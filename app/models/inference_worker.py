@@ -61,7 +61,8 @@ class InferenceWorker(QThread):
     stats_ready = pyqtSignal(object)      # dict
     status_changed = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
-    keypoints_ready = pyqtSignal(object)  # list[str] 关键点名称（图例用）
+    keypoints_ready = pyqtSignal(object)  # list[str] 关键点名称（Pose 图例）
+    classes_ready = pyqtSignal(object)    # list[str] 类别名称（检测/分割/OBB 图例）
 
     def __init__(self, predictor, source: dict, parameters: dict,
                  parent=None, max_fps: float = 30.0):
@@ -82,16 +83,24 @@ class InferenceWorker(QThread):
         self._manual_stop = False
         self._kpt_names: list[str] = []
         self._enabled_kpts: set[str] = set()
+        self._class_names: list[str] = []
+        self._visible_classes: set[str] | None = None
 
-    # ---- keypoint legend ----
+    # ---- legends ----
 
     @property
     def kpt_names(self) -> list[str]:
         return list(self._kpt_names)
 
     def set_keypoint_labels(self, enabled_names):
-        """Enable label rendering only for the given keypoint names."""
+        """Enable pose keypoint label rendering for the given names."""
         self._enabled_kpts = set(enabled_names or ())
+
+    def set_visible_classes(self, visible: list | set | None):
+        """Restrict detection/segmentation/OBB rendering to these classes."""
+        self._visible_classes = (
+            set(visible) if visible is not None else None
+        )
 
     # ---- control ----
 
@@ -174,8 +183,7 @@ class InferenceWorker(QThread):
         fps_timer = time.time()
         fps_value = 0.0
 
-        # 关键点名称发现（图例数据源，仅一次）；无法从训练数据恢复时
-        # 生成 kp_N 通用名，保证图例始终可交互。
+        # 结构发现（仅一次）：Pose → 关键点图例；检测/分割/OBB → 类别图例
         names = discover_keypoint_names(self._predictor)
         if not names:
             try:
@@ -189,6 +197,16 @@ class InferenceWorker(QThread):
         if names:
             self._kpt_names = names
             self.keypoints_ready.emit(names)
+        else:
+            try:
+                class_names = list(dict(self._predictor.names).values())
+                class_names = [str(name) for name in class_names]
+            except (AttributeError, TypeError, ValueError):
+                class_names = []
+            if class_names:
+                self._class_names = class_names
+                self._visible_classes = set(class_names)
+                self.classes_ready.emit(class_names)
 
         while not self._stop:
             if self._pause:
@@ -216,6 +234,12 @@ class InferenceWorker(QThread):
                 verbose=False,
             )
             infer_ms = (time.time() - started) * 1000.0
+
+            # 类别图例：先按可见类别过滤，再绘制（检测/分割/OBB）
+            if self._visible_classes is not None and results is not None:
+                results = _filter_results_classes(
+                    results, self._visible_classes,
+                )
 
             annotated = np.asarray(results[0].plot()) if results else frame
             counts = _count_targets(results, self._predictor)
@@ -314,6 +338,49 @@ class _ImageListSource:
 
     def release(self):
         pass
+
+
+def _filter_results_classes(results, visible: set[str]):
+    """Filter detections/segments/OBBs/pose instances per frame class set."""
+    filtered = []
+    names_map = {}
+    for result in results:
+        names_map = dict(getattr(result, 'names', None) or {})
+        break
+    for result in results:
+        class_holder = (
+            getattr(result, 'boxes', None)
+            or getattr(result, 'obb', None)
+        )
+        if class_holder is None:
+            filtered.append(result)
+            continue
+        try:
+            classes = class_holder.cls
+            classes_list = (
+                classes.detach().cpu().numpy().astype(int).tolist()
+                if hasattr(classes, 'detach') else list(classes)
+            )
+        except (AttributeError, TypeError):
+            filtered.append(result)
+            continue
+        keep = [
+            index for index, class_id in enumerate(classes_list)
+            if str(names_map.get(int(class_id), int(class_id))) in visible
+        ]
+        if len(keep) == len(classes_list):
+            filtered.append(result)
+            continue
+        for attr in ('boxes', 'masks', 'obb', 'keypoints'):
+            holder = getattr(result, attr, None)
+            if holder is None:
+                continue
+            try:
+                setattr(result, attr, holder[keep])
+            except (IndexError, TypeError):
+                pass
+        filtered.append(result)
+    return filtered
 
 
 def _draw_keypoint_labels(frame, result, names: list[str],

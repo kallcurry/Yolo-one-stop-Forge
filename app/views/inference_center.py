@@ -266,13 +266,13 @@ class InferenceCenterView(QWidget):
         legend_layout.setContentsMargins(14, 12, 14, 12)
         legend_layout.setSpacing(10)
 
-        legend_title = QLabel('关键点图例')
-        legend_title.setObjectName('trainingSectionTitle')
-        legend_layout.addWidget(legend_title)
-        legend_hint = QLabel('点击名称控制该关键点标签是否显示在画面中')
-        legend_hint.setObjectName('evaluationSectionHint')
-        legend_hint.setWordWrap(True)
-        legend_layout.addWidget(legend_hint)
+        self.legend_title = QLabel('关键点图例')
+        self.legend_title.setObjectName('trainingSectionTitle')
+        legend_layout.addWidget(self.legend_title)
+        self.legend_hint = QLabel('点击名称控制该关键点标签是否显示在画面中')
+        self.legend_hint.setObjectName('evaluationSectionHint')
+        self.legend_hint.setWordWrap(True)
+        legend_layout.addWidget(self.legend_hint)
 
         legend_buttons = QHBoxLayout()
         btn_all_on = QPushButton('全部显示')
@@ -301,6 +301,7 @@ class InferenceCenterView(QWidget):
 
         self._legend_checks: list[QCheckBox] = []
         self._kpt_names: list[str] = []
+        self._class_names: list[str] = []
         body.addWidget(self.legend_panel)
         layout.addWidget(body, 1)
 
@@ -423,6 +424,7 @@ class InferenceCenterView(QWidget):
         )
         self._worker.error_occurred.connect(self._on_worker_error)
         self._worker.keypoints_ready.connect(self._on_keypoints_ready)
+        self._worker.classes_ready.connect(self._on_classes_ready)
         self._worker.finished.connect(self._on_worker_finished)
         self._worker.start()
         self._set_running(True)
@@ -434,18 +436,20 @@ class InferenceCenterView(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         self._legend_checks = []
-        hint = QLabel('等待模型识别关键点…')
+        self._kpt_names = []
+        self._class_names = []
+        self.legend_title.setText('模型结构图例')
+        hint = QLabel('等待模型识别结构…')
         hint.setObjectName('evaluationSectionHint')
         self.legend_grid.addWidget(hint, 0, 0)
 
-    def _on_keypoints_ready(self, names):
-        self._kpt_names = list(names or [])
+    def _build_legend_items(self, names, default_checked: bool):
         while self.legend_grid.count():
             item = self.legend_grid.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
         self._legend_checks = []
-        for index, name in enumerate(self._kpt_names):
+        for index, name in enumerate(names):
             color = KEYPOINT_COLORS[index % len(KEYPOINT_COLORS)]
             chip = QLabel('  ')
             chip.setFixedSize(14, 14)
@@ -455,6 +459,7 @@ class InferenceCenterView(QWidget):
             )
             check = QCheckBox(str(name))
             check.setObjectName('trainingCheck')
+            check.setChecked(default_checked)
             check.toggled.connect(self._on_legend_toggled)
             row, column = divmod(index, 2)
             cell = QWidget()
@@ -467,13 +472,32 @@ class InferenceCenterView(QWidget):
             self.legend_grid.addWidget(cell, row, column)
             self._legend_checks.append(check)
 
+    def _on_keypoints_ready(self, names):
+        self._kpt_names = list(names or [])
+        self.legend_title.setText('关键点图例')
+        self.legend_hint.setText('点击名称控制该关键点标签是否显示在画面中')
+        self._build_legend_items(self._kpt_names, default_checked=False)
+
+    def _on_classes_ready(self, names):
+        self._class_names = list(names or [])
+        self.legend_title.setText('类别图例')
+        self.legend_hint.setText('点击名称控制该类别的框 / 掩码 / 旋转框显示')
+        self._build_legend_items(self._class_names, default_checked=True)
+
     def _on_legend_toggled(self, *_args):
         enabled = {
             check.text()
             for check in self._legend_checks if check.isChecked()
         }
-        if self._worker is not None:
+        if self._worker is None:
+            return
+        if self._kpt_names:
             self._worker.set_keypoint_labels(enabled)
+        elif self._class_names:
+            if len(enabled) == len(self._class_names):
+                self._worker.set_visible_classes(None)
+            else:
+                self._worker.set_visible_classes(enabled)
 
     def _toggle_all_labels(self, checked: bool):
         for check in self._legend_checks:
