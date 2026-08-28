@@ -7,7 +7,8 @@ import os
 import sys
 from pathlib import Path
 
-from PyQt5.QtCore import QProcess, Qt, QTimer, QEvent
+from PyQt5.QtCore import QPointF, QProcess, Qt, QTimer, QEvent, pyqtSignal
+from PyQt5.QtGui import QColor, QPainter, QPen
 from PyQt5.QtGui import QColor, QPalette
 from PyQt5.QtWidgets import (
     QButtonGroup,
@@ -55,6 +56,22 @@ EVALUATION_PAGE_TASKS = 0
 EVALUATION_PAGE_NEW = 1
 EVALUATION_PAGE_MONITOR = 2
 EVALUATION_PAGE_RESULT = 3
+EVALUATION_PAGE_COMPARE = 4
+
+SERIES_COLORS = (
+    '#36B7FF', '#45D483', '#F5A524', '#FF6677', '#B88CFF',
+    '#62E8FF', '#F28AC8', '#A4D65E',
+)
+
+COMPARE_METRICS = (
+    ('mAP50-95', 'mAP50-95'),
+    ('mAP50', 'mAP50'),
+    ('mAP75', 'mAP75'),
+    ('precision', 'Precision'),
+    ('recall', 'Recall'),
+    ('gap', '泛化差距'),
+    ('latency', '时延 ms'),
+)
 
 STATUS_TONES = {
     'queued': '#FFD07A',
@@ -64,6 +81,105 @@ STATUS_TONES = {
     'stopped': '#FFB0B0',
     'interrupted': '#FFB0B0',
 }
+
+
+class CompareBarChart(QWidget):
+    """Painter-based comparison bars: model -> metric value per evaluation."""
+
+    model_activated = pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName('evalCompareChart')
+        self.setMinimumHeight(200)
+        self._data: list[tuple[str, float]] = []
+        self._metric = ''
+        self._selected = -1
+
+    def set_data(self, pairs, metric: str):
+        self._data = list(pairs)
+        self._metric = metric
+        self._selected = -1
+        self.setMinimumHeight(max(200, 150 + len(self._data) * 42)
+                               if self._data else 200)
+        self.update()
+
+    def set_selected(self, index: int):
+        self._selected = index
+        self.update()
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(8, 16, 25))
+        painter.setRenderHint(QPainter.Antialiasing)
+        if not self._data:
+            painter.setPen(QColor(126, 156, 173))
+            painter.drawText(self.rect(), Qt.AlignCenter,
+                             '暂无对比数据 — 完成同一测试批次下多个模型的评估后，'
+                             '这里展示效果差距')
+            painter.end()
+            return
+
+        margin = 66
+        chart_h = self.height() - margin - 46
+        baseline_y = margin + chart_h
+        # 绝对最大值（支持负值：泛化差距）
+        max_abs = max((abs(value) for _name, value in self._data), default=1.0)
+        max_abs = max(max_abs, 1e-6)
+        slot = self.width() / max(len(self._data), 1)
+        bar_w = min(90.0, slot * 0.55)
+
+        painter.setPen(QColor(91, 153, 184))
+        for step in range(0, 101, 20):
+            y = baseline_y - chart_h * step / 100.0
+            painter.drawLine(10, int(y), self.width() - 10, int(y))
+        painter.drawLine(10, baseline_y, self.width() - 10, baseline_y)
+
+        half = chart_h / 2.0
+        for index, (name, value) in enumerate(self._data):
+            height = abs(value) / max_abs * half
+            x = slot * index + (slot - bar_w) / 2
+            color = QColor(SERIES_COLORS[index % len(SERIES_COLORS)])
+            if value >= 0:
+                rect = (int(x), int(baseline_y - height), int(bar_w), int(height))
+            else:
+                rect = (int(x), int(baseline_y), int(bar_w), int(height))
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(color)
+            painter.drawRect(*rect)
+            if index == self._selected:
+                painter.setPen(QPen(QColor(255, 255, 255), 2))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawRect(rect[0] - 2, rect[1] - 2,
+                                 rect[2] + 4, rect[3] + 4)
+            # 数值
+            label_y = baseline_y - half - 8 if value >= 0 else baseline_y + height + 14
+            painter.setPen(QColor(221, 242, 255))
+            painter.drawText(
+                QPointF(x + bar_w / 2, label_y),
+                f'{value:.4f}',
+            )
+            # 名称（截断）
+            short = str(name)
+            if len(short) > 16:
+                short = short[:15] + '…'
+            painter.setPen(QColor(134, 175, 194) if index != self._selected
+                           else QColor(255, 255, 255))
+            painter.drawText(
+                QPointF(x + bar_w / 2, margin + chart_h + 20),
+                short,
+            )
+        painter.end()
+
+    def mousePressEvent(self, event):
+        if not self._data:
+            return
+        slot = self.width() / len(self._data)
+        index = int(event.pos().x() / max(slot, 1))
+        if 0 <= index < len(self._data):
+            self._selected = index
+            self.update()
+            self.model_activated.emit(index)
 
 
 class EvaluationManagementView(QWidget):
@@ -203,6 +319,7 @@ class EvaluationManagementView(QWidget):
             ('01', '新建评估', EVALUATION_PAGE_NEW),
             ('02', '监控', EVALUATION_PAGE_MONITOR),
             ('03', '结果', EVALUATION_PAGE_RESULT),
+            ('04', '对比', EVALUATION_PAGE_COMPARE),
         ):
             button = QPushButton(f'{number}   {label}')
             button.setObjectName('trainingStepBtn')
@@ -223,6 +340,7 @@ class EvaluationManagementView(QWidget):
             self._build_new_tab(),
             self._build_monitor_tab(),
             self._build_result_tab(),
+            self._build_compare_tab(),
         ]
         self.page_stack = QStackedWidget()
         for page in self.pages:
@@ -238,6 +356,8 @@ class EvaluationManagementView(QWidget):
         for button in (self.btn_task_center, *self.step_buttons):
             data = self.step_group.id(button)
             button.setChecked(data == page)
+        if page == EVALUATION_PAGE_COMPARE:
+            self._refresh_compare()
 
     def _build_task_center_tab(self) -> QWidget:
         widget = QWidget()
@@ -560,6 +680,149 @@ class EvaluationManagementView(QWidget):
         if target.is_file():
             import subprocess
             subprocess.Popen(['xdg-open', str(target)])
+
+    # ---- compare page ----
+
+    def _build_compare_tab(self) -> QWidget:
+        widget = QWidget()
+        widget.setObjectName('evalComparePage')
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 8, 0, 0)
+        layout.setSpacing(10)
+
+        controls = QHBoxLayout()
+        controls.addWidget(QLabel('测试批次'))
+        self.compare_batch = QComboBox()
+        self.compare_batch.setObjectName('trainingCombo')
+        self.compare_batch.setMinimumWidth(180)
+        self.compare_batch.currentIndexChanged.connect(self._refresh_compare)
+        controls.addWidget(self.compare_batch)
+        controls.addWidget(QLabel('指标'))
+        self.compare_metric = QComboBox()
+        self.compare_metric.setObjectName('trainingCombo')
+        for key, label in COMPARE_METRICS:
+            self.compare_metric.addItem(label, key)
+        self.compare_metric.currentIndexChanged.connect(self._refresh_compare_chart)
+        controls.addWidget(self.compare_metric)
+        btn_refresh = QPushButton('刷新对比')
+        btn_refresh.setObjectName('fileOpBtn')
+        btn_refresh.clicked.connect(self._refresh_compare)
+        controls.addWidget(btn_refresh)
+        controls.addStretch()
+        self.compare_hint = QLabel('同一测试批次下多个已评估模型的效果对比（按指标排序）')
+        self.compare_hint.setObjectName('evaluationSectionHint')
+        controls.addWidget(self.compare_hint)
+        layout.addLayout(controls)
+
+        self.compare_chart = CompareBarChart()
+        self.compare_chart.model_activated.connect(self._open_compare_row)
+        layout.addWidget(self.compare_chart, 2)
+
+        self.compare_table = QTableWidget(0, 9)
+        self.compare_table.setHorizontalHeaderLabels(
+            ['模型', '测试批次', 'mAP50-95', 'mAP50', 'mAP75',
+             'Precision', 'Recall', '泛化差距', '评估时间']
+        )
+        self.compare_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.compare_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.compare_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.compare_table.setAlternatingRowColors(True)
+        self.compare_table.verticalHeader().setVisible(False)
+        header = self.compare_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        for column in range(2, 9):
+            header.setSectionResizeMode(column, QHeaderView.ResizeToContents)
+        header.setStretchLastSection(False)
+        self.compare_table.itemSelectionChanged.connect(self._on_compare_selected)
+        layout.addWidget(self.compare_table, 3)
+
+        self._compare_rows: list[dict] = []
+        return widget
+
+    def _collect_compare_rows(self) -> list[dict]:
+        rows = []
+        for record in getattr(self, '_records', ()):
+            if record.status != 'completed' or not record.output_dir:
+                continue
+            result_file = Path(record.output_dir) / 'evaluation_result.json'
+            payload = {}
+            if result_file.is_file():
+                try:
+                    payload = json.loads(result_file.read_text(encoding='utf-8'))
+                except (OSError, ValueError):
+                    payload = {}
+            metrics = payload.get('metrics') or record.metrics or {}
+            train_metrics = payload.get('train_metrics') or {}
+            latency = payload.get('latency') or {}
+            rows.append({
+                'record': record,
+                'model': str(record.spec.get('model_label') or ''),
+                'batch': str(payload.get('test_batch') or record.spec.get('test_batch') or ''),
+                'task': str(payload.get('task_type') or record.spec.get('task_type') or ''),
+                'mAP50-95': metrics.get('mAP50-95'),
+                'mAP50': metrics.get('mAP50'),
+                'mAP75': metrics.get('mAP75'),
+                'precision': metrics.get('precision'),
+                'recall': metrics.get('recall'),
+                'gap': payload.get('generalization_gap'),
+                'latency': latency.get('ms_per_image'),
+                'created_at': str(payload.get('created_at') or record.created_at or ''),
+            })
+        return rows
+
+    def _refresh_compare(self):
+        current = self.compare_batch.currentText()
+        self.compare_batch.blockSignals(True)
+        self.compare_batch.clear()
+        self.compare_batch.addItem('全部测试批次')
+        batches = sorted({row['batch'] for row in self._collect_compare_rows()})
+        for batch in batches:
+            self.compare_batch.addItem(batch)
+        index = self.compare_batch.findText(current)
+        self.compare_batch.setCurrentIndex(index if index >= 0 else 0)
+        self.compare_batch.blockSignals(False)
+        self._refresh_compare_chart()
+
+    def _refresh_compare_chart(self):
+        batch_filter = self.compare_batch.currentText()
+        rows = self._collect_compare_rows()
+        if batch_filter and batch_filter != '全部测试批次':
+            rows = [row for row in rows if row['batch'] == batch_filter]
+        metric_key = self.compare_metric.currentData() or 'mAP50-95'
+        rows = [row for row in rows if row.get(metric_key) is not None]
+        rows.sort(key=lambda row: row[metric_key], reverse=True)
+        self._compare_rows = rows
+
+        self.compare_chart.set_data(
+            [(row['model'], row[metric_key]) for row in rows],
+            self.compare_metric.currentText(),
+        )
+        self.compare_table.setRowCount(len(rows))
+        for row_index, row in enumerate(rows):
+            values = (
+                row['model'],
+                row['batch'],
+                *[
+                    '-' if row[key] is None else f"{row[key]:.4f}"
+                    for key in ('mAP50-95', 'mAP50', 'mAP75',
+                                'precision', 'recall', 'gap')
+                ],
+                row['created_at'],
+            )
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                item.setData(Qt.UserRole, row_index)
+                self.compare_table.setItem(row_index, column, item)
+
+    def _on_compare_selected(self):
+        rows = self.compare_table.selectionModel().selectedRows()
+        if rows and rows[0].row() < len(self._compare_rows):
+            self.compare_chart.set_selected(rows[0].row())
+
+    def _open_compare_row(self, index: int):
+        if 0 <= index < len(self._compare_rows):
+            self._open_result(self._compare_rows[index]['record'])
 
     # ---- helpers ----
 
