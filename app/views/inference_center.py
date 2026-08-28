@@ -374,8 +374,9 @@ class InferenceCenterView(QWidget):
             self._refresh_model_choices()
 
     def _browse_model(self):
+        start_dir = self._extra_repo or str(PROJECT_ROOT / 'models')
         path, _f = QFileDialog.getOpenFileName(
-            self, '选择模型权重', str(PROJECT_ROOT / 'models'),
+            self, '选择模型权重', start_dir,
             '模型 (*.pt);;所有文件 (*)',
         )
         if path:
@@ -441,6 +442,7 @@ class InferenceCenterView(QWidget):
         self._worker.error_occurred.connect(self._on_worker_error)
         self._worker.keypoints_ready.connect(self._on_keypoints_ready)
         self._worker.classes_ready.connect(self._on_classes_ready)
+        self._worker.task_ready.connect(self._on_task_ready)
         self._worker.finished.connect(self._on_worker_finished)
         self._worker.start()
         self._set_running(True)
@@ -493,6 +495,15 @@ class InferenceCenterView(QWidget):
         self.legend_title.setText('关键点图例')
         self.legend_hint.setText('点击名称控制该关键点标签是否显示在画面中')
         self._build_legend_items(self._kpt_names, default_checked=False)
+
+    _TASK_LABELS = {
+        'pose': 'POSE', 'detect': 'DETECTION',
+        'segment': 'SEGMENTATION', 'obb': 'OBB',
+    }
+
+    def _on_task_ready(self, task: str):
+        label = self._TASK_LABELS.get(str(task), str(task).upper())
+        self.header_badge.setText(f'TASK · {label} · REALTIME')
 
     def _on_classes_ready(self, names):
         self._class_names = list(names or [])

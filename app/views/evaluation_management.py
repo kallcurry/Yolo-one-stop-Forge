@@ -592,7 +592,21 @@ class EvaluationManagementView(QWidget):
             if not candidate.is_dir():
                 continue
             if (candidate / 'dataset.yaml').is_file():
-                self.combo_test.addItem(candidate.name, str(candidate))
+                task_type = ''
+                manifest = candidate / 'test_manifest.json'
+                if manifest.is_file():
+                    try:
+                        payload = json.loads(
+                            manifest.read_text(encoding='utf-8')
+                        )
+                        task_type = str(payload.get('task_type') or '')
+                    except (OSError, ValueError):
+                        pass
+                label = (
+                    f'{candidate.name}（{task_type}）'
+                    if task_type else candidate.name
+                )
+                self.combo_test.addItem(label, str(candidate))
                 found += 1
         self.new_status.setText(
             f'发现 {found} 个测试批次。' if found else
@@ -896,6 +910,12 @@ class EvaluationManagementView(QWidget):
         status_badge.setObjectName('evalCardStatus')
         status_badge.setProperty('tone', record.status)
         top.addWidget(status_badge)
+        task_text = str(record.spec.get('task_type') or '').upper()
+        if task_text:
+            task_badge = QLabel(task_text)
+            task_badge.setObjectName('evalCardStatus')
+            task_badge.setProperty('tone', 'task')
+            top.addWidget(task_badge)
         top.addStretch()
         time_label = QLabel(record.created_at or '')
         time_label.setObjectName('evalCardTime')
@@ -1065,6 +1085,7 @@ class EvaluationManagementView(QWidget):
             if latency.get('ms_per_image') is not None else '时延未记录'
         )
         self.result_meta.setText(
+            f'任务类型 {payload.get("task_type", "-")} · '
             f'测试批次 {payload.get("test_batch", "-")} · '
             f'训练批次 {payload.get("training_batch") or "-"} · '
             f'{latency_text} · '

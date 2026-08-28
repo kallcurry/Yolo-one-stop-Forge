@@ -829,6 +829,11 @@ QLabel#evalCardStatus[tone="failed"] { background-color: #FF6B6B; }
 QLabel#evalCardStatus[tone="stopped"],
 QLabel#evalCardStatus[tone="interrupted"] { background-color: #FFB0B0; }
 
+QLabel#evalCardStatus[tone="task"] {
+    background-color: #38BDF8;
+    color: #0E2330;
+}
+
 QLabel#evalCardTitle {
     color: #F3FCFF;
     font-size: 15px;

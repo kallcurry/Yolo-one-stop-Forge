@@ -63,6 +63,7 @@ class InferenceWorker(QThread):
     error_occurred = pyqtSignal(str)
     keypoints_ready = pyqtSignal(object)  # list[str] 关键点名称（Pose 图例）
     classes_ready = pyqtSignal(object)    # list[str] 类别名称（检测/分割/OBB 图例）
+    task_ready = pyqtSignal(str)          # 模型任务类型 detect/segment/obb/pose
 
     def __init__(self, predictor, source: dict, parameters: dict,
                  parent=None, max_fps: float = 30.0):
@@ -182,6 +183,17 @@ class InferenceWorker(QThread):
         frame_index = 0
         fps_timer = time.time()
         fps_value = 0.0
+
+        # 任务类型发现：ultralytics 模型自带 task（detect/segment/obb/pose）
+        try:
+            task = str(
+                getattr(getattr(self._predictor, 'model', None), 'task', '')
+                or ''
+            )
+        except (AttributeError, TypeError, ValueError):
+            task = ''
+        if task:
+            self.task_ready.emit(task)
 
         # 结构发现（仅一次）：Pose → 关键点图例；检测/分割/OBB → 类别图例
         names = discover_keypoint_names(self._predictor)
