@@ -57,7 +57,28 @@ def _install_excepthook():
     sys.excepthook = _hook
 
 
+def sanitize_qt_environment():
+    """Drop OpenCV's incompatible Qt plugin paths before QApplication boots.
+
+    OpenCV wheels ship their own Qt plugins under ``cv2/qt/plugins``; if a
+    shell/launcher has exported ``QT_QPA_PLATFORM_PLUGIN_PATH`` pointing there,
+    the Qt platform plugin fails to load (xcb incompatibility) and the app
+    aborts at startup.  This mirrors the cleanup the label-tool launcher does
+    for its subprocess and makes ``python main.py`` safe in polluted shells.
+    """
+    for key in ('QT_QPA_PLATFORM_PLUGIN_PATH', 'QT_PLUGIN_PATH'):
+        value = os.environ.get(key, '')
+        if 'cv2' in value.replace('\\', '/'):
+            os.environ.pop(key, None)
+            print(f'[启动保护] 已移除不兼容的 OpenCV Qt 插件路径: {key}')
+    # 无头环境提示（若用户在无显示器终端运行）
+    if not os.environ.get('DISPLAY') and not os.environ.get('WAYLAND_DISPLAY'):
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        print('[启动保护] 未检测到显示环境，已启用 offscreen 模式')
+
+
 def main():
+    sanitize_qt_environment()
     _install_excepthook()
     app = QApplication(sys.argv)
     app.setApplicationName('ImageFileManager')
