@@ -9,20 +9,28 @@ from pathlib import Path
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QPixmap, QPainter
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
+    QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
-from app.models.inference_worker import InferenceWorker
+from app.models.inference_worker import (
+    InferenceWorker,
+    KEYPOINT_COLORS,
+)
 from app.utils import discover_available_models
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -243,7 +251,58 @@ class InferenceCenterView(QWidget):
         layout.addLayout(actions)
 
         self.canvas = InferenceCanvas()
-        layout.addWidget(self.canvas, 1)
+        body = QSplitter(Qt.Horizontal)
+        body.setObjectName('evaluationBodySplitter')
+        body.setChildrenCollapsible(False)
+        body.setHandleWidth(7)
+        body.addWidget(self.canvas)
+        body.setStretchFactor(0, 1)
+
+        self.legend_panel = QWidget()
+        self.legend_panel.setObjectName('evaluationPanel')
+        self.legend_panel.setMinimumWidth(260)
+        self.legend_panel.setMaximumWidth(340)
+        legend_layout = QVBoxLayout(self.legend_panel)
+        legend_layout.setContentsMargins(14, 12, 14, 12)
+        legend_layout.setSpacing(10)
+
+        legend_title = QLabel('关键点图例')
+        legend_title.setObjectName('trainingSectionTitle')
+        legend_layout.addWidget(legend_title)
+        legend_hint = QLabel('点击名称控制该关键点标签是否显示在画面中')
+        legend_hint.setObjectName('evaluationSectionHint')
+        legend_hint.setWordWrap(True)
+        legend_layout.addWidget(legend_hint)
+
+        legend_buttons = QHBoxLayout()
+        btn_all_on = QPushButton('全部显示')
+        btn_all_on.setObjectName('fileOpBtn')
+        btn_all_on.clicked.connect(lambda: self._toggle_all_labels(True))
+        legend_buttons.addWidget(btn_all_on)
+        btn_all_off = QPushButton('全部隐藏')
+        btn_all_off.setObjectName('fileOpBtn')
+        btn_all_off.clicked.connect(lambda: self._toggle_all_labels(False))
+        legend_buttons.addWidget(btn_all_off)
+        legend_buttons.addStretch()
+        legend_layout.addLayout(legend_buttons)
+
+        self.legend_scroll = QScrollArea()
+        self.legend_scroll.setObjectName('evalTaskScroll')
+        self.legend_scroll.setWidgetResizable(True)
+        self.legend_scroll.setFrameShape(QFrame.NoFrame)
+        self.legend_scroll.viewport().setAutoFillBackground(False)
+        self.legend_host = QWidget()
+        self.legend_host.setAutoFillBackground(False)
+        self.legend_grid = QGridLayout(self.legend_host)
+        self.legend_grid.setContentsMargins(0, 2, 0, 2)
+        self.legend_grid.setSpacing(6)
+        self.legend_scroll.setWidget(self.legend_host)
+        legend_layout.addWidget(self.legend_scroll, 1)
+
+        self._legend_checks: list[QCheckBox] = []
+        self._kpt_names: list[str] = []
+        body.addWidget(self.legend_panel)
+        layout.addWidget(body, 1)
 
         self._apply_source_mode()
 
@@ -363,9 +422,62 @@ class InferenceCenterView(QWidget):
             lambda text: self.status_label.setText(text)
         )
         self._worker.error_occurred.connect(self._on_worker_error)
+        self._worker.keypoints_ready.connect(self._on_keypoints_ready)
         self._worker.finished.connect(self._on_worker_finished)
         self._worker.start()
         self._set_running(True)
+        self._reset_legend()
+
+    def _reset_legend(self):
+        while self.legend_grid.count():
+            item = self.legend_grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._legend_checks = []
+        hint = QLabel('等待模型识别关键点…')
+        hint.setObjectName('evaluationSectionHint')
+        self.legend_grid.addWidget(hint, 0, 0)
+
+    def _on_keypoints_ready(self, names):
+        self._kpt_names = list(names or [])
+        while self.legend_grid.count():
+            item = self.legend_grid.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._legend_checks = []
+        for index, name in enumerate(self._kpt_names):
+            color = KEYPOINT_COLORS[index % len(KEYPOINT_COLORS)]
+            chip = QLabel('  ')
+            chip.setFixedSize(14, 14)
+            chip.setStyleSheet(
+                f'background-color: rgb({color[0]},{color[1]},{color[2]});'
+                'border-radius: 4px;'
+            )
+            check = QCheckBox(str(name))
+            check.setObjectName('trainingCheck')
+            check.toggled.connect(self._on_legend_toggled)
+            row, column = divmod(index, 2)
+            cell = QWidget()
+            cell_layout = QHBoxLayout(cell)
+            cell_layout.setContentsMargins(0, 0, 0, 0)
+            cell_layout.setSpacing(6)
+            cell_layout.addWidget(chip)
+            cell_layout.addWidget(check)
+            cell_layout.addStretch()
+            self.legend_grid.addWidget(cell, row, column)
+            self._legend_checks.append(check)
+
+    def _on_legend_toggled(self, *_args):
+        enabled = {
+            check.text()
+            for check in self._legend_checks if check.isChecked()
+        }
+        if self._worker is not None:
+            self._worker.set_keypoint_labels(enabled)
+
+    def _toggle_all_labels(self, checked: bool):
+        for check in self._legend_checks:
+            check.setChecked(checked)
 
     def _on_frame(self, image):
         pixmap = QPixmap.fromImage(image)

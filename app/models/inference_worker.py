@@ -18,12 +18,50 @@ from PyQt5.QtGui import QImage
 
 SUPPORTED_VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mkv', '.mov', '.webm'}
 
+# 图例 & 标签共用的关键点配色（与 ultralytics 点色近似，保证图例可辨识）
+KEYPOINT_COLORS = [
+    (230, 25, 75), (60, 180, 75), (0, 130, 200), (245, 130, 48),
+    (145, 30, 180), (76, 230, 230), (240, 50, 230), (210, 245, 60),
+    (250, 190, 190), (0, 128, 128), (230, 190, 255), (170, 110, 40),
+    (255, 250, 200), (128, 0, 0), (170, 255, 195), (0, 0, 128),
+    (128, 128, 0), (255, 215, 180), (0, 64, 128), (64, 224, 208),
+    (153, 51, 255), (255, 102, 178), (102, 255, 51),
+]
+
+
+def discover_keypoint_names(model) -> list[str] | None:
+    """Recover keypoint names from the training dataset.yaml when possible.
+
+    Models trained by this platform carry ``data`` pointing at the batch
+    dataset.yaml which includes ``keypoint_names``; downloaded models fall
+    back to numbered placeholders.
+    """
+    try:
+        args = getattr(getattr(model, 'model', None), 'args', None) or {}
+        data_path = args.get('data')
+        kpt_shape = getattr(getattr(model, 'model', None), 'kpt_shape', None)
+        if not data_path or not kpt_shape:
+            return None
+        import pathlib
+        import yaml
+        data_file = pathlib.Path(str(data_path))
+        if not data_file.is_file():
+            return None
+        payload = yaml.safe_load(data_file.read_text(encoding='utf-8'))
+        names = payload.get('keypoint_names') if isinstance(payload, dict) else None
+        if not isinstance(names, list) or len(names) != int(kpt_shape[0]):
+            return None
+        return [str(name) for name in names]
+    except Exception:  # noqa: BLE001 - best effort
+        return None
+
 
 class InferenceWorker(QThread):
     frame_ready = pyqtSignal(object)      # QImage
     stats_ready = pyqtSignal(object)      # dict
     status_changed = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
+    keypoints_ready = pyqtSignal(object)  # list[str] 关键点名称（图例用）
 
     def __init__(self, predictor, source: dict, parameters: dict,
                  parent=None, max_fps: float = 30.0):
@@ -42,6 +80,18 @@ class InferenceWorker(QThread):
         self._latest_counts: dict[str, int] = {}
         self._latest_stats: dict = {}
         self._manual_stop = False
+        self._kpt_names: list[str] = []
+        self._enabled_kpts: set[str] = set()
+
+    # ---- keypoint legend ----
+
+    @property
+    def kpt_names(self) -> list[str]:
+        return list(self._kpt_names)
+
+    def set_keypoint_labels(self, enabled_names):
+        """Enable label rendering only for the given keypoint names."""
+        self._enabled_kpts = set(enabled_names or ())
 
     # ---- control ----
 
@@ -124,6 +174,22 @@ class InferenceWorker(QThread):
         fps_timer = time.time()
         fps_value = 0.0
 
+        # 关键点名称发现（图例数据源，仅一次）；无法从训练数据恢复时
+        # 生成 kp_N 通用名，保证图例始终可交互。
+        names = discover_keypoint_names(self._predictor)
+        if not names:
+            try:
+                shape = getattr(
+                    getattr(self._predictor, 'model', None), 'kpt_shape', None
+                )
+                if shape and int(shape[0]) > 1:
+                    names = [f'kp_{index}' for index in range(int(shape[0]))]
+            except (AttributeError, TypeError, ValueError):
+                names = None
+        if names:
+            self._kpt_names = names
+            self.keypoints_ready.emit(names)
+
         while not self._stop:
             if self._pause:
                 self.status_changed.emit('已暂停')
@@ -154,6 +220,12 @@ class InferenceWorker(QThread):
             annotated = np.asarray(results[0].plot()) if results else frame
             counts = _count_targets(results, self._predictor)
             self._latest_counts = counts
+
+            if self._enabled_kpts and results is not None:
+                annotated = _draw_keypoint_labels(
+                    annotated, results[0], self._kpt_names,
+                    self._enabled_kpts,
+                )
 
             frame_index += 1
             now = time.time()
@@ -242,6 +314,53 @@ class _ImageListSource:
 
     def release(self):
         pass
+
+
+def _draw_keypoint_labels(frame, result, names: list[str],
+                          enabled: set[str]) -> np.ndarray:
+    """Draw enabled keypoint names next to their dots.
+
+    ``result.keypoints`` provides per-person ``xy`` (pixel) and ``conf``;
+    only keypoints with confidence above 0.5 are labeled so occluded or
+    missing joints do not clutter the view.
+    """
+    keypoints = getattr(result, 'keypoints', None)
+    if keypoints is None or not names:
+        return frame
+    try:
+        xy = keypoints.xy
+        conf = keypoints.conf
+        xy = xy.detach().cpu().numpy() if hasattr(xy, 'detach') else np.asarray(xy)
+        conf = conf.detach().cpu().numpy() if hasattr(conf, 'detach') else np.asarray(conf)
+    except (AttributeError, TypeError, ValueError):
+        return frame
+    if xy.ndim != 3:
+        return frame
+    for person_index in range(xy.shape[0]):
+        for kpt_index in range(min(xy.shape[1], len(names))):
+            name = names[kpt_index]
+            if name not in enabled:
+                continue
+            try:
+                is_visible = conf[person_index][kpt_index] > 0.5
+            except (IndexError, TypeError):
+                is_visible = False
+            if not is_visible:
+                continue
+            x, y = xy[person_index][kpt_index]
+            if not (0 <= x < frame.shape[1] and 0 <= y < frame.shape[0]):
+                continue
+            color = KEYPOINT_COLORS[kpt_index % len(KEYPOINT_COLORS)]
+            x, y = int(x), int(y)
+            cv2.circle(frame, (x, y), 4, color, -1)
+            cv2.rectangle(
+                frame, (x + 5, y - 20), (x + 5 + 9 * len(name) + 6, y - 3),
+                (20, 30, 45), -1,
+            )
+            cv2.putText(frame, name, (x + 9, y - 7),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1,
+                        cv2.LINE_AA)
+    return frame
 
 
 def _count_targets(results, predictor) -> dict[str, int]:
