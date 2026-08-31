@@ -179,21 +179,32 @@ class InferenceWorker(QThread):
                 pass
 
     def _predict_kwargs(self) -> dict:
-        kwargs = {
+        return {
             'conf': self._parameters.get('conf', 0.25),
             'iou': self._parameters.get('iou', 0.6),
             'imgsz': self._parameters.get('imgsz', 640),
             'device': self._parameters.get('device', 'auto'),
             'verbose': False,
         }
-        # GPU 上自动启用 fp16 半精度（前向提速 30-60%）；CPU 环境禁用
+
+    def _apply_half_once(self):
+        """Convert the model to fp16 exactly once (no per-frame 'half' arg).
+
+        ``predict(half=...)`` is deprecated per-call in newer Ultralytics and
+        warns on every frame; setting args + model precision once keeps the
+        speedup without the warning spam.
+        """
         try:
             import torch
-            if str(kwargs['device']).lower() in {'', 'auto', '0', 'cuda'} and torch.cuda.is_available():
-                kwargs['half'] = True
+            if not torch.cuda.is_available():
+                return
+            predictor = self._predictor
+            predictor.args.half = True
+            model = getattr(predictor, 'model', None)
+            if model is not None:
+                model = model.half()
         except Exception:  # noqa: BLE001
             pass
-        return kwargs
 
     def _run_loop(self, capture):
         self._capture = capture
@@ -238,6 +249,8 @@ class InferenceWorker(QThread):
                 self._visible_classes = set(class_names)
                 self.classes_ready.emit(class_names)
 
+        # fp16 半精度：一次性转换（GPU 环境）
+        self._apply_half_once()
         # 预热：消除冷启动（CUDA/内核编译）对帧率统计的污染
         try:
             warm = np.zeros((320, 480, 3), dtype=np.uint8)

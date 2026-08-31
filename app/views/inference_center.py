@@ -625,6 +625,14 @@ class InferenceCenterView(QWidget):
             self.btn_record.setText('停止录制')
             self.status_label.setText(f'正在录制：{path.name}')
 
+    def closeEvent(self, event):
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.request_stop()
+            if not self._worker.wait(3000):
+                self._worker.terminate()
+                self._worker.wait(1000)
+        super().closeEvent(event)
+
     def prefill_model(self, model_path: str, model_label: str):
         resolved = str(Path(model_path).expanduser().resolve())
         self._refresh_model_choices(keep_current=resolved)
