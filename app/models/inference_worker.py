@@ -192,17 +192,26 @@ class InferenceWorker(QThread):
 
         ``predict(half=...)`` is deprecated per-call in newer Ultralytics and
         warns on every frame; setting args + model precision once keeps the
-        speedup without the warning spam.
+        speedup without the warning spam.  Note: ``predictor.args`` is an
+        IterableSimpleNamespace (attribute assignment), while ``YOLO.args`` is
+        a plain dict.
         """
         try:
             import torch
             if not torch.cuda.is_available():
                 return
             predictor = self._predictor
-            predictor.args.half = True
             model = getattr(predictor, 'model', None)
             if model is not None:
-                model = model.half()
+                model.half()
+            pred = getattr(predictor, 'predictor', None)
+            if pred is not None and hasattr(pred, 'args') and hasattr(pred.args, 'half'):
+                pred.args.half = True
+            elif hasattr(predictor, 'args'):
+                try:
+                    predictor.args['half'] = True
+                except TypeError:
+                    predictor.args.half = True
         except Exception:  # noqa: BLE001
             pass
 
@@ -257,6 +266,8 @@ class InferenceWorker(QThread):
             self._predictor.predict(warm, **self._predict_kwargs())
         except Exception:  # noqa: BLE001
             pass
+        # 预热完成后 predictor 实例已创建：再次应用半精度，确保 fp16 真正生效
+        self._apply_half_once()
         fps_timer = time.time()
         fps_frames = 0
         fps_value = 0.0

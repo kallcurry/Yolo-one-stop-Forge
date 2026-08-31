@@ -581,9 +581,16 @@ class InferenceCenterView(QWidget):
                 device_label = f'CUDA · {torch.cuda.get_device_name(0)}'
             else:
                 device_label = 'CPU'
-            half = 'fp16' if torch.cuda.is_available() else 'fp32'
+            dtype = 'fp32'
+            try:
+                params = list(next(getattr(predictor, 'model', None)
+                                   .parameters()) if getattr(predictor, 'model', None) else [])
+                if params:
+                    dtype = str(params.dtype).replace('torch.', '')
+            except Exception:  # noqa: BLE001
+                pass
             self.status_label.setText(
-                f'推理设备: {device_label}（{half}） · 请选择输入源并开始'
+                f'推理设备: {device_label}（{dtype}） · 请选择输入源并开始'
             )
         except Exception:  # noqa: BLE001
             pass
