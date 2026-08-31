@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from PyQt5.QtCore import QSettings, QThread, Qt, pyqtSignal
+from PyQt5.QtCore import QSettings, QThread, QTimer, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
@@ -76,6 +76,7 @@ class ConvertValidateDialog(QDialog):
         self.setMinimumSize(900, 700)
         self.resize(1080, 780)
         self._threads: list[QThread] = []
+        QTimer.singleShot(200, self._refresh_scope_list)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -92,21 +93,40 @@ class ConvertValidateDialog(QDialog):
         layout.addLayout(header)
 
         inputs = QGroupBox('输入')
-        input_layout = QHBoxLayout(inputs)
-        input_layout.addWidget(QLabel('数据根目录'))
+        input_layout = QVBoxLayout(inputs)
+        root_row = QHBoxLayout()
+        root_row.addWidget(QLabel('数据根目录'))
         self.edit_root = QLineEdit(default_root or stored_dataset_path())
         self.edit_root.setPlaceholderText('包含 images / annotations / labels 的项目根目录')
-        input_layout.addWidget(self.edit_root, 1)
+        root_row.addWidget(self.edit_root, 1)
         btn_root = QPushButton('选择')
         btn_root.clicked.connect(self._pick_root)
-        input_layout.addWidget(btn_root)
-        input_layout.addWidget(QLabel('标注配置'))
+        root_row.addWidget(btn_root)
+        root_row.addWidget(QLabel('标注配置'))
         self.edit_config = QLineEdit(_stored_config_path())
         self.edit_config.setPlaceholderText('X-AnyLabeling 标签配置 YAML（如 yolov8m_pose_boyuan.yaml）')
-        input_layout.addWidget(self.edit_config, 1)
+        root_row.addWidget(self.edit_config, 1)
         btn_config = QPushButton('选择')
         btn_config.clicked.connect(self._pick_config)
-        input_layout.addWidget(btn_config)
+        root_row.addWidget(btn_config)
+        input_layout.addLayout(root_row)
+
+        scope_row = QHBoxLayout()
+        scope_row.addWidget(QLabel('转换范围'))
+        self.combo_scope = QComboBox()
+        self.combo_scope.setObjectName('trainingCombo')
+        self.combo_scope.addItem('全部数据目录', '')
+        self.combo_scope.setToolTip('可选择 annotations 下的指定批次/子目录，只转换所选范围')
+        scope_row.addWidget(self.combo_scope)
+        btn_scope = QPushButton('刷新批次')
+        btn_scope.setObjectName('fileOpBtn')
+        btn_scope.clicked.connect(self._refresh_scope_list)
+        scope_row.addWidget(btn_scope)
+        self.lbl_scope_count = QLabel('')
+        self.lbl_scope_count.setObjectName('duplicateScope')
+        scope_row.addWidget(self.lbl_scope_count)
+        scope_row.addStretch()
+        input_layout.addLayout(scope_row)
         layout.addWidget(inputs)
 
         self.summary = QLabel('请选择数据根目录与标注配置。')
@@ -139,6 +159,24 @@ class ConvertValidateDialog(QDialog):
         if path:
             self.edit_config.setText(path)
             _save_config_path(path)
+
+    def _refresh_scope_list(self):
+        self.combo_scope.clear()
+        self.combo_scope.addItem('全部数据目录', '')
+        _root, ann_root, _lbl = self._resolved_dirs()
+        if ann_root is None or not ann_root.is_dir():
+            self.lbl_scope_count.setText('')
+            return
+        found = 0
+        for child in sorted(ann_root.iterdir()):
+            if child.is_dir():
+                self.combo_scope.addItem(child.name, child.name)
+                found += 1
+        self.lbl_scope_count.setText(f'（{found} 个批次）')
+
+    def _scope_value(self) -> str | None:
+        value = str(self.combo_scope.currentData() or '')
+        return value or None
 
     def _load_config(self) -> LabelConfig | None:
         config_path = self.edit_config.text().strip()
@@ -291,7 +329,10 @@ class ConvertValidateDialog(QDialog):
         self.summary.setText(f'正在转换（策略={policy}）...请稍候')
         self.btn_export_convert.setEnabled(False)
         self._start(
-            lambda: convert_json_batch(ann_root, lbl_root, config, exists_policy=policy),
+            lambda: convert_json_batch(
+                ann_root, lbl_root, config,
+                exists_policy=policy, scope=self._scope_value(),
+            ),
             self._on_convert_done,
         )
 
@@ -381,7 +422,10 @@ class ConvertValidateDialog(QDialog):
         self.summary.setText(f'正在校验（容差 {tolerance}）...请稍候')
         self.btn_export_validate.setEnabled(False)
         self._start(
-            lambda: validate_annotation_tree(ann_root, lbl_root, config, tolerance),
+            lambda: validate_annotation_tree(
+                ann_root, lbl_root, config, tolerance,
+                scope=self._scope_value(),
+            ),
             self._on_validate_done,
         )
 

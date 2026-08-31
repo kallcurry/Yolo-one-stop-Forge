@@ -511,14 +511,21 @@ def validate_annotation_tree(
     labels_root: str | Path,
     config: LabelConfig,
     tolerance: float = 1e-4,
+    scope: str | None = None,
 ) -> ValidationReport:
-    """Validate every JSON/TXT pair across the batch directories."""
+    """Validate every JSON/TXT pair across the batch directories.
+
+    ``scope`` optionally restricts the walk to a relative subdirectory of the
+    annotation root (e.g. a batch name).
+    """
     ann_root = Path(annotations_root).resolve()
     lbl_root = Path(labels_root).resolve()
+    scope_rel = _normalize_scope(scope)
+    walk_root = ann_root / scope_rel if scope_rel else ann_root
     items: list[FileValidation] = []
     json_paths: set[Path] = set()
     txt_paths: set[Path] = set()
-    for json_path in sorted(ann_root.rglob('*.json')):
+    for json_path in sorted(walk_root.rglob('*.json')):
         json_paths.add(json_path)
         try:
             rel = json_path.relative_to(ann_root)
@@ -532,7 +539,8 @@ def validate_annotation_tree(
         items.append(validate_txt_against_json(json_path, txt_path, config, tolerance))
 
     extra_txts = []
-    for txt_path in sorted(lbl_root.rglob('*.txt')):
+    extra_walk = lbl_root / scope_rel if scope_rel else lbl_root
+    for txt_path in sorted(extra_walk.rglob('*.txt')):
         if txt_path in txt_paths:
             continue
         try:
@@ -589,21 +597,26 @@ def convert_json_batch(
     exists_policy: str = 'skip',
     dry_run: bool = False,
     max_errors: int = 100,
+    scope: str | None = None,
 ) -> ConvertReport:
     """Convert every JSON under ``annotations_root`` into YOLO TXT files.
 
+    ``scope`` optionally restricts the walk to a relative subdirectory of the
+    annotation root (e.g. a batch name); other directories stay untouched.
     ``exists_policy``: ``skip`` keeps existing TXT files; ``overwrite``
     rewrites them in place; ``backup`` moves the existing TXT into a timestamp
     backup directory before writing the new one.
     """
     ann_root = Path(annotations_root).resolve()
     lbl_root = Path(labels_root).resolve()
+    scope_rel = _normalize_scope(scope)
     backup_dir: Path | None = None
     if exists_policy == 'backup':
         backup_dir = lbl_root.parent / f'convert_backup_{time.strftime("%Y%m%d-%H%M%S")}'
 
     items: list[ConvertItem] = []
-    for json_path in sorted(ann_root.rglob('*.json')):
+    walk_root = ann_root / scope_rel if scope_rel else ann_root
+    for json_path in sorted(walk_root.rglob('*.json')):
         try:
             import json as _json
             data = _json.loads(json_path.read_text(encoding='utf-8'))
@@ -680,6 +693,16 @@ def preview_conversion(
     if issues:
         body += '\n' + '\n'.join('⚠ ' + issue for issue in issues[:10])
     return heading + body
+
+
+def _normalize_scope(scope: str | None) -> str:
+    """Sanitize a scope subdirectory; empty means the whole tree."""
+    value = str(scope or '').strip().strip('/')
+    if not value or value in {'.', '..'}:
+        return ''
+    if '/' in value and '..' in value.split('/'):
+        raise ValueError(f'转换范围包含非法路径: {value!r}')
+    return value
 
 
 def export_csv(lines: Iterable[str], path: str | Path) -> Path:
