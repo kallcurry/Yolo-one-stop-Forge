@@ -205,13 +205,11 @@ class InferenceWorker(QThread):
             if model is not None:
                 model.half()
             pred = getattr(predictor, 'predictor', None)
-            if pred is not None and hasattr(pred, 'args') and hasattr(pred.args, 'half'):
+            if pred is not None:
+                # IterableSimpleNamespace：属性赋值即创建；勿触碰
+                # YOLO.args（dict）——每次 predict 合并时会触发
+                # half 弃用警告刷屏。
                 pred.args.half = True
-            elif hasattr(predictor, 'args'):
-                try:
-                    predictor.args['half'] = True
-                except TypeError:
-                    predictor.args.half = True
         except Exception:  # noqa: BLE001
             pass
 
@@ -258,15 +256,13 @@ class InferenceWorker(QThread):
                 self._visible_classes = set(class_names)
                 self.classes_ready.emit(class_names)
 
-        # fp16 半精度：一次性转换（GPU 环境）
-        self._apply_half_once()
-        # 预热：消除冷启动（CUDA/内核编译）对帧率统计的污染
+        # 预热：先用 fp32 消除冷启动（随后再转换精度，避免 dtype 冲突）
         try:
             warm = np.zeros((320, 480, 3), dtype=np.uint8)
             self._predictor.predict(warm, **self._predict_kwargs())
         except Exception:  # noqa: BLE001
             pass
-        # 预热完成后 predictor 实例已创建：再次应用半精度，确保 fp16 真正生效
+        # 预热完成后（predictor 已创建、YOLO.args 未污染）应用半精度：fp16 生效
         self._apply_half_once()
         fps_timer = time.time()
         fps_frames = 0
@@ -494,6 +490,88 @@ def _draw_keypoint_labels(frame, result, names: list[str],
             cv2.putText(frame, name, (x + 9, y - 7),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1,
                         cv2.LINE_AA)
+    return frame
+
+
+def _count_targets(results, predictor) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    if not results:
+        return counts
+    names = getattr(results[0], 'names', None) or {}
+    boxes = getattr(results[0], 'boxes', None)
+    if boxes is None:
+        return counts
+    try:
+        classes = boxes.cls
+        classes = classes.detach().cpu().numpy().astype(int) if hasattr(
+            classes, 'detach'
+        ) else classes
+        for class_id in classes:
+            name = str(names.get(int(class_id), int(class_id)))
+            counts[name] = counts.get(name, 0) + 1
+    except (AttributeError, TypeError, ValueError):
+        return counts
+    return counts
+
+
+def _draw_hud(frame, stats: dict) -> np.ndarray:
+    """Draw translucent HUD (top-left stats, top-right counts)."""
+    # 字号随视频宽度自适应：720p 起放大，1080p/2K 更大
+    factor = max(0.9, frame.shape[1] / 1280.0)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    info_line1 = (
+        f"FPS {stats.get('fps', 0):.1f} | "
+        f"pre {stats.get('pre_ms', 0):.1f} / infer {stats.get('infer_ms', 0):.1f} / "
+        f"post {stats.get('post_ms', 0):.1f} ms"
+    )
+    info_line2 = (
+        f"帧 {stats.get('frame', 0)} | "
+        f"目标 {sum((stats.get('counts') or {}).values())}"
+    )
+    scale = 0.85 * factor
+    thickness = max(1, int(1.4 * factor))
+    (w1, h1), _ = cv2.getTextSize(info_line1, font, scale, thickness)
+    (w2, _h2), _ = cv2.getTextSize(info_line2, font, scale, thickness)
+    box_w = max(w1, w2) + 24
+    box_h = int(h1 * 2.4) + 20
+    x0, y0 = 12, 12
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (x0, y0), (x0 + box_w, y0 + box_h),
+                  (10, 22, 38), -1)
+    cv2.rectangle(overlay, (x0, y0), (x0 + box_w, y0 + box_h),
+                  (54, 183, 255), 2)
+    cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+    cv2.putText(frame, info_line1, (x0 + 12, y0 + int(h1 * 1.2)),
+                font, scale, (255, 255, 255), thickness, cv2.LINE_AA)
+    cv2.putText(frame, info_line2, (x0 + 12, y0 + int(h1 * 2.2)),
+                font, scale, (134, 175, 194), thickness, cv2.LINE_AA)
+
+    counts = stats.get('counts') or {}
+    if counts:
+        row_h = int(26 * factor)
+        scale_c = 0.72 * factor
+        (wc, hc), _ = cv2.getTextSize('目标计数', font, scale_c, thickness)
+        panel_w = wc + 120 * factor
+        panel_h = int(hc * 1.6) + row_h * len(counts) + 10 * factor
+        px = frame.shape[1] - panel_w - 12
+        py = 12
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (int(px), py),
+                      (int(px + panel_w), int(py + panel_h)), (10, 22, 38), -1)
+        cv2.rectangle(overlay, (int(px), py),
+                      (int(px + panel_w), int(py + panel_h)), (69, 212, 131), 2)
+        cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+        cv2.putText(frame, '目标计数', (int(px + 14), int(py + hc * 1.3)),
+                    font, scale_c, (98, 232, 255), thickness, cv2.LINE_AA)
+        for index, (name, count) in enumerate(
+            sorted(counts.items(), key=lambda item: -item[1])
+        ):
+            y = int(py + hc * 1.6 + 12 * factor + index * row_h)
+            cv2.putText(frame, f'{name} : {count}',
+                        (int(px + 14), y),
+                        font, scale_c, (255, 255, 255), thickness, cv2.LINE_AA)
     return frame
 
 
