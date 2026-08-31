@@ -182,6 +182,7 @@ class InferenceWorker(QThread):
         self._capture = capture
         frame_index = 0
         fps_timer = time.time()
+        fps_frames = 0
         fps_value = 0.0
 
         # 任务类型发现：ultralytics 模型自带 task（detect/segment/obb/pose）
@@ -264,10 +265,12 @@ class InferenceWorker(QThread):
                 )
 
             frame_index += 1
+            fps_frames += 1
             now = time.time()
             interval = now - fps_timer
             if interval >= 0.5:
-                fps_value = 1.0 / interval
+                fps_value = fps_frames / interval
+                fps_frames = 0
                 fps_timer = now
             self._latest_stats = {
                 'fps': round(fps_value, 1),
