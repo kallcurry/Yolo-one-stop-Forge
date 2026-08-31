@@ -233,6 +233,13 @@ class ConvertValidateDialog(QDialog):
         for radio in (self.rb_skip, self.rb_backup, self.rb_overwrite):
             self.radio_policy.addButton(radio)
             policy_row.addWidget(radio)
+        self.check_skip_empty = QCheckBox('跳过空标注（空 JSON 不生成 TXT）')
+        self.check_skip_empty.setObjectName('trainingCheck')
+        self.check_skip_empty.setToolTip(
+            '与 X-AnyLabeling 的 "Skip empty labels" 一致：空标注不生成 TXT；'
+            '若目标已存在且为 0 字节空文件则一并清理，非空文件不受影响。'
+        )
+        policy_row.addWidget(self.check_skip_empty)
         policy_row.addStretch()
         layout.addLayout(policy_row)
 
@@ -336,6 +343,7 @@ class ConvertValidateDialog(QDialog):
             lambda: convert_json_batch(
                 ann_root, lbl_root, config,
                 exists_policy=policy, scope=self._scope_value(),
+                skip_empty=self.check_skip_empty.isChecked(),
             ),
             self._on_convert_done,
         )

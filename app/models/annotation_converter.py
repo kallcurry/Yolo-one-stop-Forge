@@ -598,6 +598,7 @@ def convert_json_batch(
     dry_run: bool = False,
     max_errors: int = 100,
     scope: str | None = None,
+    skip_empty: bool = False,
 ) -> ConvertReport:
     """Convert every JSON under ``annotations_root`` into YOLO TXT files.
 
@@ -635,6 +636,20 @@ def convert_json_batch(
             items.append(ConvertItem(
                 json_path, target, 'written', len(lines),
                 '预览（未写盘）; ' + ('; '.join(issues[:3]) if issues else '')
+            ))
+            continue
+
+        if skip_empty and not lines:
+            # 空标注：不生成空 TXT；已有空 TXT（0 字节）一并清理
+            if target.exists():
+                try:
+                    if target.stat().st_size == 0:
+                        target.unlink()
+                except OSError:
+                    pass
+            items.append(ConvertItem(
+                json_path, target, 'empty-skipped', 0,
+                '空标注，已跳过' + ('; ' + '; '.join(issues[:2]) if issues else '')
             ))
             continue
 
