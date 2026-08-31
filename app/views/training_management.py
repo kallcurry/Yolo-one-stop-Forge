@@ -39,6 +39,7 @@ from PyQt5.QtWidgets import (
     QInputDialog,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMenu,
     QMessageBox,
     QPlainTextEdit,
@@ -526,6 +527,29 @@ class TrainingManagementView(QWidget):
             'train/val/test 划分与本次完全一致，跨任务比较合法、无数据泄漏。'
         )
         options.addWidget(self.check_reuse_split, 4, 0, 1, 4)
+
+        exclude_row = QHBoxLayout()
+        self.check_exclude_test = QCheckBox('跳过测试集（排除所选测试样本，防止泄漏）')
+        self.check_exclude_test.setObjectName('trainingCheck')
+        self.check_exclude_test.setChecked(True)
+        self.check_exclude_test.setToolTip(
+            '生成训练批次时排除测试集样本，避免训练与评估数据重叠。\n'
+            '下方列表可选择要排除的测试集批次（取消勾选 = 排除全部）。'
+        )
+        exclude_row.addWidget(self.check_exclude_test)
+        self.test_batch_list = QListWidget()
+        self.test_batch_list.setObjectName('trainingEdit')
+        self.test_batch_list.setFixedHeight(64)
+        self.test_batch_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.test_batch_list.setToolTip(
+            '勾选要排除的测试集批次；全部不勾选 = 排除所有测试集批次。'
+        )
+        exclude_row.addWidget(self.test_batch_list, 1)
+        btn_refresh_test = QPushButton('刷新测试集')
+        btn_refresh_test.setObjectName('fileOpBtn')
+        btn_refresh_test.clicked.connect(self._refresh_test_batch_list)
+        exclude_row.addWidget(btn_refresh_test)
+        options.addLayout(exclude_row, 5, 0, 1, 6)
 
         self.background_checkbox = QPushButton('空标注作背景')
         self.background_checkbox.setObjectName('trainingOptionBtn')
@@ -1378,6 +1402,7 @@ class TrainingManagementView(QWidget):
         self._dataset_root = root
         self.dataset_root_edit.setText(str(root))
         self.lbl_training_context.setText(root.name)
+        self._refresh_test_batch_list()
         current_project = self.project_name_edit.text().strip()
         if not current_project or current_project == self._auto_project_name:
             self._auto_project_name = self._default_project_name(root)
@@ -2344,6 +2369,35 @@ class TrainingManagementView(QWidget):
         self.source_tree.blockSignals(False)
         self._on_source_selection_changed(None, 0)
 
+    def _refresh_test_batch_list(self):
+        """Populate the selectable test-set batch list (exclusion sources)."""
+        self.test_batch_list.clear()
+        root = getattr(self, '_dataset_root', None)
+        if root is None:
+            return
+        test_root = Path(root) / 'test_data'
+        if not test_root.is_dir():
+            return
+        known_flat = {'images', 'annotations', 'labels', 'labels-原', 'labels.cache'}
+        for child in sorted(test_root.iterdir()):
+            if not child.is_dir() or child.name in known_flat:
+                continue
+            if not (child / 'images').is_dir():
+                continue
+            item = __import__('PyQt5.QtWidgets', fromlist=['QListWidgetItem']).QListWidgetItem(child.name)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Checked)
+            self.test_batch_list.addItem(item)
+
+    def _selected_exclude_batches(self) -> tuple[str, ...]:
+        """Checked test batches to exclude; empty = exclude all batches."""
+        names = []
+        for index in range(self.test_batch_list.count()):
+            item = self.test_batch_list.item(index)
+            if item.checkState() == Qt.Checked:
+                names.append(item.text())
+        return tuple(names)
+
     def _selected_source_names(self) -> tuple[str, ...]:
         names = []
         for index in range(self.source_tree.topLevelItemCount()):
@@ -2368,7 +2422,8 @@ class TrainingManagementView(QWidget):
             test_batch_name=self.test_batch_name_edit.text().strip(),
             reuse_split=self.check_reuse_split.isChecked(),
             use_copy=bool(self.write_mode_combo.currentData()),
-            exclude_test=True,
+            exclude_test=self.check_exclude_test.isChecked(),
+            test_batches=self._selected_exclude_batches(),
             allow_background_without_label=self.background_checkbox.isChecked(),
             skip_incomplete_samples=True,
             skip_duplicate_samples=True,

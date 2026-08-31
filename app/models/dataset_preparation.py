@@ -46,6 +46,7 @@ class DatasetPreparationRequest:
     test_ratio: float = 0.0
     test_batch_name: str = ''
     reuse_split: bool = False
+    test_batches: tuple[str, ...] = ()
     use_copy: bool = False
     exclude_test: bool = True
     allow_background_without_label: bool = False
@@ -88,6 +89,7 @@ class DatasetPreparationRequest:
             reuse_split=bool(self.reuse_split),
             use_copy=bool(self.use_copy),
             exclude_test=bool(self.exclude_test),
+            test_batches=tuple(str(name) for name in self.test_batches),
             allow_background_without_label=bool(
                 self.allow_background_without_label
             ),
@@ -358,7 +360,10 @@ def scan_dataset(request: DatasetPreparationRequest) -> DatasetScanResult:
     if not images_root.is_dir():
         raise DatasetPreparationError(f'images 目录不存在: {images_root}')
 
-    test_stems = _load_test_stems(root / 'test_data') if request.exclude_test else set()
+    test_stems = (
+        _load_test_stems(root / 'test_data', request.test_batches)
+        if request.exclude_test else set()
+    )
     seen_stems: set[str] = set()
 
     for source_name in request.source_names:
@@ -1049,7 +1054,14 @@ def _find_reusable_split(request: DatasetPreparationRequest) -> dict | None:
     return None
 
 
-def _load_test_stems(test_root: Path) -> set[str]:
+def _load_test_stems(test_root: Path, batches: tuple[str, ...] = ()) -> set[str]:
+    """Collect test stems from the legacy flat layout and session batches.
+
+    The legacy ``test_data/images`` flat tree and ``test_list.txt`` are always
+    included.  When ``batches`` is non-empty only those ``test_data/<batch>``
+    directories are scanned (selective exclusion); when empty every batch
+    directory is scanned (exclude-everything, the safest default).
+    """
     stems = set()
     images = test_root / 'images'
     if images.is_dir():
@@ -1063,6 +1075,22 @@ def _load_test_stems(test_root: Path) -> set[str]:
                     stems.add(stem)
         except OSError:
             pass
+    if not test_root.is_dir():
+        return stems
+    batch_dirs = (
+        [test_root / name for name in batches]
+        if batches
+        else sorted(
+            child for child in test_root.iterdir()
+            if child.is_dir() and child.name not in {'images', 'labels', 'annotations'}
+        )
+    )
+    for batch_dir in batch_dirs:
+        images_dir = batch_dir / 'images'
+        if images_dir.is_dir():
+            stems.update(
+                path.stem for path in images_dir.rglob('*') if _is_image(path)
+            )
     return stems
 
 
