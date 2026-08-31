@@ -40,3 +40,6 @@ tests/
 Claude.md
 PROJECT_ANALYSIS.md
 labelme_stats_report.md
+
+# --- 发布宣传物料（不随仓库分发） ---
+docs/blog/
