@@ -224,6 +224,13 @@ class InferenceCenterView(QWidget):
         device_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         param_row.addWidget(device_label)
         param_row.addWidget(self.edit_device)
+        self.check_half = QCheckBox('半精度 FP16（速度优先）')
+        self.check_half.setObjectName('trainingCheck')
+        self.check_half.setToolTip(
+            '使用 Ultralytics 官方 quantize=16 机制；若不兼容会自动回退 FP32，'
+            '稳定性优先于速度时请保持关闭。'
+        )
+        param_row.addWidget(self.check_half)
         param_row.addStretch()
         panel_layout.addLayout(param_row)
         layout.addWidget(panel)
@@ -408,6 +415,7 @@ class InferenceCenterView(QWidget):
             'iou': float(self.spin_iou.value()),
             'imgsz': int(self.spin_imgsz.value()),
             'device': self.edit_device.text().strip() or 'auto',
+            'half': self.check_half.isChecked(),
         }
 
     # ---- lifecycle ----
@@ -567,6 +575,7 @@ class InferenceCenterView(QWidget):
         # 运行中锁定推理参数（运行中修改不会生效，明确禁用避免误解）
         for control in (
             self.spin_conf, self.spin_iou, self.spin_imgsz, self.edit_device,
+            self.check_half,
         ):
             control.setEnabled(not running)
         if not running:

@@ -179,39 +179,35 @@ class InferenceWorker(QThread):
                 pass
 
     def _predict_kwargs(self) -> dict:
-        return {
+        kwargs = {
             'conf': self._parameters.get('conf', 0.25),
             'iou': self._parameters.get('iou', 0.6),
             'imgsz': self._parameters.get('imgsz', 640),
             'device': self._parameters.get('device', 'auto'),
             'verbose': False,
         }
-
-    def _apply_half_once(self):
-        """Convert the model to fp16 exactly once (no per-frame 'half' arg).
-
-        ``predict(half=...)`` is deprecated per-call in newer Ultralytics and
-        warns on every frame; setting args + model precision once keeps the
-        speedup without the warning spam.  Note: ``predictor.args`` is an
-        IterableSimpleNamespace (attribute assignment), while ``YOLO.args`` is
-        a plain dict.
-        """
+        # fp16 半精度（用户勾选时）：官方 quantize=16 机制，
+        # 输入/权重同步转换；CPU 环境自动跳过。
         try:
             import torch
-            if not torch.cuda.is_available():
-                return
-            predictor = self._predictor
-            model = getattr(predictor, 'model', None)
-            if model is not None:
-                model.half()
-            pred = getattr(predictor, 'predictor', None)
-            if pred is not None:
-                # IterableSimpleNamespace：属性赋值即创建；勿触碰
-                # YOLO.args（dict）——每次 predict 合并时会触发
-                # half 弃用警告刷屏。
-                pred.args.half = True
+            if self._parameters.get('half') and torch.cuda.is_available():
+                kwargs['quantize'] = 16
         except Exception:  # noqa: BLE001
             pass
+        return kwargs
+
+    def _predict_safe(self, frame):
+        """Predict with automatic fp16 fallback: never let precision crash."""
+        try:
+            return self._predictor.predict(frame, **self._predict_kwargs())
+        except Exception as exc:  # noqa: BLE001
+            if self._parameters.get('half'):
+                self._parameters['half'] = False
+                self.status_changed.emit(
+                    '半精度不可用，已自动回退 FP32'
+                )
+                return self._predictor.predict(frame, **self._predict_kwargs())
+            raise exc
 
     def _run_loop(self, capture):
         self._capture = capture
@@ -262,8 +258,6 @@ class InferenceWorker(QThread):
             self._predictor.predict(warm, **self._predict_kwargs())
         except Exception:  # noqa: BLE001
             pass
-        # 预热完成后（predictor 已创建、YOLO.args 未污染）应用半精度：fp16 生效
-        self._apply_half_once()
         fps_timer = time.time()
         fps_frames = 0
         fps_value = 0.0
@@ -285,7 +279,7 @@ class InferenceWorker(QThread):
                         continue
                 break
 
-            results = self._predictor.predict(frame, **self._predict_kwargs())
+            results = self._predict_safe(frame)
             infer_ms = (time.time() - started) * 1000.0
             try:
                 _speed = dict(getattr(results[0], 'speed', None) or {})
