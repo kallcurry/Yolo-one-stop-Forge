@@ -305,9 +305,11 @@ class ConvertValidateDialog(QDialog):
         if root is None or not ann_root.is_dir():
             self.summary.setText('标注目录不存在，请检查数据根目录与标注目录名。')
             return
-        json_files = sorted(ann_root.rglob('*.json'))
+        scope = self._scope_value()
+        walk_root = (ann_root / scope) if scope else ann_root
+        json_files = sorted(walk_root.rglob('*.json'))
         if not json_files:
-            self.summary.setText('标注目录下没有 JSON 文件。')
+            self.summary.setText('所选范围内没有 JSON 文件。')
             return
         chunks = []
         for json_file in json_files[:60]:
@@ -316,7 +318,8 @@ class ConvertValidateDialog(QDialog):
             chunks.append(f'... 其余 {len(json_files) - 60} 个文件未预览')
         self.convert_preview.setPlainText('\n' + ('-' * 72) + '\n' + ('-' * 72).join(chunks))
         self.summary.setText(
-            f'预览完成：{len(json_files)} 个 JSON（仅显示内容，未写盘）。'
+            f'预览完成：{len(json_files)} 个 JSON'
+            f'{"（范围：" + scope + "）" if scope else ""}（仅显示内容，未写盘）。'
         )
 
     def _run_convert(self):
