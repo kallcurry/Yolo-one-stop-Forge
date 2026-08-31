@@ -7,6 +7,7 @@ from PyQt5.QtCore import QSettings, QThread, QTimer, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QDialogButtonBox,
     QDoubleSpinBox,
