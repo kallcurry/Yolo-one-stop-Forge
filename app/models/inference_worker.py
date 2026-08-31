@@ -178,6 +178,23 @@ class InferenceWorker(QThread):
             except (AttributeError, Exception):  # noqa: BLE001
                 pass
 
+    def _predict_kwargs(self) -> dict:
+        kwargs = {
+            'conf': self._parameters.get('conf', 0.25),
+            'iou': self._parameters.get('iou', 0.6),
+            'imgsz': self._parameters.get('imgsz', 640),
+            'device': self._parameters.get('device', 'auto'),
+            'verbose': False,
+        }
+        # GPU 上自动启用 fp16 半精度（前向提速 30-60%）；CPU 环境禁用
+        try:
+            import torch
+            if str(kwargs['device']).lower() in {'', 'auto', '0', 'cuda'} and torch.cuda.is_available():
+                kwargs['half'] = True
+        except Exception:  # noqa: BLE001
+            pass
+        return kwargs
+
     def _run_loop(self, capture):
         self._capture = capture
         frame_index = 0
@@ -238,14 +255,7 @@ class InferenceWorker(QThread):
                         continue
                 break
 
-            results = self._predictor.predict(
-                frame,
-                conf=self._parameters.get('conf', 0.25),
-                iou=self._parameters.get('iou', 0.6),
-                imgsz=self._parameters.get('imgsz', 640),
-                device=self._parameters.get('device', 'auto'),
-                verbose=False,
-            )
+            results = self._predictor.predict(frame, **self._predict_kwargs())
             infer_ms = (time.time() - started) * 1000.0
 
             # 类别图例：先按可见类别过滤，再绘制（检测/分割/OBB）

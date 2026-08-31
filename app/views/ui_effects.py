@@ -21,6 +21,29 @@ from PyQt5.QtWidgets import (
 
 
 ACCENT_BLUE = QColor('#36B7FF')
+
+# ---- Ambient animation scheduling (inference can pause the backdrop) ----
+_AMBIENT_TIMERS: list = []
+_AMBIENT_ENABLED = True
+
+
+def register_ambient_timer(timer):
+    """Register a repeating animation timer for global pause/restore."""
+    _AMBIENT_TIMERS.append(timer)
+    if _AMBIENT_ENABLED:
+        timer.start()
+
+
+def set_ambient_animation_enabled(enabled: bool):
+    """Pause/resume background animations (releases CPU while inferring)."""
+    global _AMBIENT_ENABLED
+    _AMBIENT_ENABLED = bool(enabled)
+    for timer in list(_AMBIENT_TIMERS):
+        if _AMBIENT_ENABLED:
+            timer.start()
+        else:
+            timer.stop()
+
 ACCENT_GREEN = QColor('#45D483')
 ACCENT_RED = QColor('#FF4D4F')
 
@@ -42,6 +65,7 @@ class HoverGlow(QObject):
         self._pulse_timer.timeout.connect(self._pulse_checked_buttons)
         if self._effects_enabled:
             self._pulse_timer.start()
+        register_ambient_timer(self._pulse_timer)
 
     def watch_buttons(self, root: QWidget):
         for button in root.findChildren(QAbstractButton):
@@ -155,6 +179,7 @@ class TechBackdrop(QWidget):
         self._timer.setInterval(45)
         self._timer.timeout.connect(self.update)
         self._timer.start()
+        register_ambient_timer(self._timer)
 
     def paintEvent(self, _event):
         rect = self.rect()

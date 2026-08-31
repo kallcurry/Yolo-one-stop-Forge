@@ -206,15 +206,28 @@ class InferenceCenterView(QWidget):
             label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             param_row.addWidget(label)
             param_row.addWidget(control)
+        self.combo_imgsz_preset = QComboBox()
+        self.combo_imgsz_preset.setObjectName('trainingCombo')
+        self.combo_imgsz_preset.addItem('速度（384）', 384)
+        self.combo_imgsz_preset.addItem('均衡（480）', 480)
+        self.combo_imgsz_preset.addItem('质量（640）', 640)
+        self.combo_imgsz_preset.setCurrentIndex(1)
+        self.combo_imgsz_preset.setFixedWidth(120)
+        self.combo_imgsz_preset.currentIndexChanged.connect(
+            lambda _i: self.spin_imgsz.setValue(
+                int(self.combo_imgsz_preset.currentData())
+            )
+        )
         self.spin_imgsz = QSpinBox()
         self.spin_imgsz.setObjectName('trainingSpin')
         self.spin_imgsz.setRange(160, 2560)
         self.spin_imgsz.setSingleStep(32)
-        self.spin_imgsz.setValue(640)
+        self.spin_imgsz.setValue(480)
         self.spin_imgsz.setFixedWidth(110)
         imgsz_label = QLabel('imgsz')
         imgsz_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         param_row.addWidget(imgsz_label)
+        param_row.addWidget(self.combo_imgsz_preset)
         param_row.addWidget(self.spin_imgsz)
         self.edit_device = QLineEdit('auto')
         self.edit_device.setObjectName('trainingEdit')
@@ -447,6 +460,13 @@ class InferenceCenterView(QWidget):
         self._worker.start()
         self._set_running(True)
         self._reset_legend()
+        self._show_device_info(predictor)
+        # 推理期间暂停窗口动态背景动画，释放 CPU 给推理管线
+        try:
+            from app.views import ui_effects
+            ui_effects.set_ambient_animation_enabled(False)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _reset_legend(self):
         while self.legend_grid.count():
@@ -552,6 +572,7 @@ class InferenceCenterView(QWidget):
         self._set_running(False)
         self.status_label.setText('已停止')
         self._worker = None
+        self._restore_animations()
 
     def _set_running(self, running: bool):
         self.btn_start.setEnabled(not running)
@@ -561,9 +582,30 @@ class InferenceCenterView(QWidget):
         self.btn_record.setEnabled(running)
         self.combo_model.setEnabled(not running)
         self.combo_source.setEnabled(not running)
+        # 运行中锁定推理参数（运行中修改不会生效，明确禁用避免误解）
+        for control in (
+            self.spin_conf, self.spin_iou, self.combo_imgsz_preset,
+            self.spin_imgsz, self.edit_device,
+        ):
+            control.setEnabled(not running)
         if not running:
             self.btn_pause.setText('暂停')
             self.btn_record.setText('开始录制')
+
+    def _show_device_info(self, predictor):
+        try:
+            import torch
+            device_label = '未知'
+            if torch.cuda.is_available():
+                device_label = f'CUDA · {torch.cuda.get_device_name(0)}'
+            else:
+                device_label = 'CPU'
+            half = 'fp16' if torch.cuda.is_available() else 'fp32'
+            self.status_label.setText(
+                f'推理设备: {device_label}（{half}） · 请选择输入源并开始'
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     def _toggle_pause(self):
         if self._worker is None:
@@ -577,6 +619,13 @@ class InferenceCenterView(QWidget):
             return
         self._worker.request_stop()
         self._worker.wait(3000)
+
+    def _restore_animations(self):
+        try:
+            from app.views import ui_effects
+            ui_effects.set_ambient_animation_enabled(True)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _snapshot(self):
         if self._worker is None:
