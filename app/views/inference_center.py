@@ -206,18 +206,6 @@ class InferenceCenterView(QWidget):
             label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
             param_row.addWidget(label)
             param_row.addWidget(control)
-        self.combo_imgsz_preset = QComboBox()
-        self.combo_imgsz_preset.setObjectName('trainingCombo')
-        self.combo_imgsz_preset.addItem('速度（384）', 384)
-        self.combo_imgsz_preset.addItem('均衡（480）', 480)
-        self.combo_imgsz_preset.addItem('质量（640）', 640)
-        self.combo_imgsz_preset.setCurrentIndex(1)
-        self.combo_imgsz_preset.setFixedWidth(120)
-        self.combo_imgsz_preset.currentIndexChanged.connect(
-            lambda _i: self.spin_imgsz.setValue(
-                int(self.combo_imgsz_preset.currentData())
-            )
-        )
         self.spin_imgsz = QSpinBox()
         self.spin_imgsz.setObjectName('trainingSpin')
         self.spin_imgsz.setRange(160, 2560)
@@ -227,7 +215,6 @@ class InferenceCenterView(QWidget):
         imgsz_label = QLabel('imgsz')
         imgsz_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         param_row.addWidget(imgsz_label)
-        param_row.addWidget(self.combo_imgsz_preset)
         param_row.addWidget(self.spin_imgsz)
         self.edit_device = QLineEdit('auto')
         self.edit_device.setObjectName('trainingEdit')
@@ -579,8 +566,7 @@ class InferenceCenterView(QWidget):
         self.combo_source.setEnabled(not running)
         # 运行中锁定推理参数（运行中修改不会生效，明确禁用避免误解）
         for control in (
-            self.spin_conf, self.spin_iou, self.combo_imgsz_preset,
-            self.spin_imgsz, self.edit_device,
+            self.spin_conf, self.spin_iou, self.spin_imgsz, self.edit_device,
         ):
             control.setEnabled(not running)
         if not running:
