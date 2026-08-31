@@ -461,12 +461,6 @@ class InferenceCenterView(QWidget):
         self._set_running(True)
         self._reset_legend()
         self._show_device_info(predictor)
-        # 推理期间暂停窗口动态背景动画，释放 CPU 给推理管线
-        try:
-            from app.views import ui_effects
-            ui_effects.set_ambient_animation_enabled(False)
-        except Exception:  # noqa: BLE001
-            pass
 
     def _reset_legend(self):
         while self.legend_grid.count():
@@ -560,7 +554,9 @@ class InferenceCenterView(QWidget):
 
     def _on_stats(self, stats):
         self.status_label.setText(
-            f"FPS {stats.get('fps', 0)} · {stats.get('infer_ms', 0)}ms · "
+            f"FPS {stats.get('fps', 0)} · "
+            f"pre {stats.get('pre_ms', 0)}ms / infer {stats.get('infer_ms', 0)}ms / "
+            f"post {stats.get('post_ms', 0)}ms · "
             f'帧 {stats.get("frame", 0)} · 目标 {sum((stats.get("counts") or {}).values())}'
         )
 
@@ -572,7 +568,6 @@ class InferenceCenterView(QWidget):
         self._set_running(False)
         self.status_label.setText('已停止')
         self._worker = None
-        self._restore_animations()
 
     def _set_running(self, running: bool):
         self.btn_start.setEnabled(not running)
@@ -619,13 +614,6 @@ class InferenceCenterView(QWidget):
             return
         self._worker.request_stop()
         self._worker.wait(3000)
-
-    def _restore_animations(self):
-        try:
-            from app.views import ui_effects
-            ui_effects.set_ambient_animation_enabled(True)
-        except Exception:  # noqa: BLE001
-            pass
 
     def _snapshot(self):
         if self._worker is None:

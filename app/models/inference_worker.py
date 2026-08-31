@@ -238,6 +238,16 @@ class InferenceWorker(QThread):
                 self._visible_classes = set(class_names)
                 self.classes_ready.emit(class_names)
 
+        # 预热：消除冷启动（CUDA/内核编译）对帧率统计的污染
+        try:
+            warm = np.zeros((320, 480, 3), dtype=np.uint8)
+            self._predictor.predict(warm, **self._predict_kwargs())
+        except Exception:  # noqa: BLE001
+            pass
+        fps_timer = time.time()
+        fps_frames = 0
+        fps_value = 0.0
+
         while not self._stop:
             if self._pause:
                 self.status_changed.emit('已暂停')
@@ -257,6 +267,12 @@ class InferenceWorker(QThread):
 
             results = self._predictor.predict(frame, **self._predict_kwargs())
             infer_ms = (time.time() - started) * 1000.0
+            try:
+                _speed = dict(getattr(results[0], 'speed', None) or {})
+                pre_ms = float(_speed.get('preprocess') or 0.0)
+                post_ms = float(_speed.get('postprocess') or 0.0)
+            except (AttributeError, TypeError, ValueError):
+                pre_ms = post_ms = 0.0
 
             # 类别图例：先按可见类别过滤，再绘制（检测/分割/OBB）
             if self._visible_classes is not None and results is not None:
@@ -285,6 +301,8 @@ class InferenceWorker(QThread):
             self._latest_stats = {
                 'fps': round(fps_value, 1),
                 'infer_ms': round(infer_ms, 1),
+                'pre_ms': round(pre_ms, 1),
+                'post_ms': round(post_ms, 1),
                 'frame': frame_index,
                 'counts': counts,
             }
@@ -479,8 +497,9 @@ def _count_targets(results, predictor) -> dict[str, int]:
 def _draw_hud(frame, stats: dict) -> np.ndarray:
     """Draw translucent HUD (top-left stats, top-right counts) onto the frame."""
     text = (
-        f"FPS {stats.get('fps', 0):.1f} · {stats.get('infer_ms', 0):.1f}ms · "
-        f"帧 {stats.get('frame', 0)}"
+        f"FPS {stats.get('fps', 0):.1f} · "
+        f"pre {stats.get('pre_ms', 0):.1f} · infer {stats.get('infer_ms', 0):.1f} · "
+        f"post {stats.get('post_ms', 0):.1f}ms · 帧 {stats.get('frame', 0)}"
     )
     overlay = frame.copy()
     cv2.rectangle(overlay, (10, 10), (330, 44), (10, 22, 38), -1)
