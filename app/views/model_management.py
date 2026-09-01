@@ -740,12 +740,12 @@ class ModelManagementView(QWidget):
         add_field('path', '本地路径', 1, 0, 3, path_style=True)
         add_field('framework', '训练框架', 2, 0)
         add_field('input', '输入尺寸', 2, 1)
-        add_field('precision', '模型精度', 2, 2)
+        # 模型精度已移至「模型产物」表，每个产物独立显示真实 dtype
         add_field('epochs', '训练轮次', 3, 0)
         add_field('batch', 'Batch', 3, 1)
         add_field('optimizer', '优化器', 3, 2)
-        add_field('metric', '任务主指标', 4, 0, 2)
-        add_field('device', '训练设备', 4, 2)
+        add_field('metric', '任务主指标', 4, 0, 3)
+        add_field('device', '训练设备', 2, 2)
         add_field('duration', '累计训练时间', 5, 0)
         add_field('dataset_config', '数据配置', 5, 1, 2, path_style=True)
         self.lbl_detail_path = self._detail_values['path']
@@ -816,10 +816,10 @@ class ModelManagementView(QWidget):
         self.artifact_tree = QTreeWidget()
         self.artifact_tree.setObjectName('modelDetailTree')
         self.artifact_tree.setHeaderLabels([
-            '用途', '文件', '格式', '运行框架', '大小', '更新时间', '完整路径'
+            '用途', '文件', '格式', '精度', '运行框架', '大小', '更新时间', '完整路径'
         ])
         self._configure_detail_tree(
-            self.artifact_tree, [90, 190, 85, 130, 95, 105, 360]
+            self.artifact_tree, [90, 190, 85, 70, 130, 95, 105, 330]
         )
         self.detail_tabs.addTab(
             self._tree_tab_page('本次训练产生的权重、检查点和导出模型', self.artifact_tree),
@@ -1346,12 +1346,7 @@ class ModelManagementView(QWidget):
         self._detail_values['path'].setToolTip(record.path)
         self._detail_values['framework'].setText(record.framework)
         self._detail_values['input'].setText(record.input_size)
-        self._detail_values['precision'].setText(record.precision)
-        self._detail_values['precision'].setToolTip(
-            '模型精度：读取权重/onnx 张量的真实 dtype（FP32/FP16/BF16）。\n'
-            'PT 权重 = 训练产物（PyTorch）；ONNX = 部署格式。\n'
-            '*FP16/BF16 通常更快、显存更低，代价是毫厘级精度损失。'
-        )
+        # 精度已移至模型产物表的独立列（每个产物真实 dtype）
         self._detail_values['epochs'].setText(
             f'{record.actual_epochs} / {record.planned_epochs}'
             if record.planned_epochs else str(record.actual_epochs or '-')
@@ -1471,13 +1466,15 @@ class ModelManagementView(QWidget):
                 role_names.get(artifact.role, artifact.role),
                 artifact.name,
                 artifact.file_format,
+                artifact.precision,
                 artifact.framework,
                 _format_bytes(artifact.size_bytes),
                 artifact.modified_at,
                 artifact.path,
             ])
             item.setToolTip(1, artifact.name)
-            item.setToolTip(6, artifact.path)
+            item.setToolTip(3, f'真实 dtype：{artifact.precision}')
+            item.setToolTip(7, artifact.path)
             self.artifact_tree.addTopLevelItem(item)
 
     def _populate_training_args(self, record: ModelRecord):

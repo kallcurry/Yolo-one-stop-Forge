@@ -84,6 +84,7 @@ class ModelArtifact:
     size_bytes: int
     modified_at: str
     role: str
+    precision: str = 'FP32'   # 真实检测的权重 dtype（FP32/FP16/BF16/...）
 
 
 @dataclass(frozen=True)
@@ -349,6 +350,8 @@ def _scan_artifacts(weights_dir: Path) -> list[ModelArtifact]:
             size_bytes=stat.st_size,
             modified_at=datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d'),
             role=_artifact_role(path),
+            precision=detect_artifact_precision(path)
+            or _precision_from_name(path.name),
         ))
     return artifacts
 
@@ -721,14 +724,9 @@ def _dtype_label(dtype_text: str) -> str:
     return 'FP32'
 
 
-def _artifact_precision(artifact: ModelArtifact | None) -> str:
-    """Precision shown on model cards: real detection first, then filename."""
-    if artifact is None:
-        return '-'
-    detected = detect_artifact_precision(Path(artifact.path))
-    if detected:
-        return detected
-    token = artifact.name.lower()
+def _precision_from_name(name: str) -> str:
+    """Filename heuristic used only when real detection is unavailable."""
+    token = str(name).lower()
     if 'int8' in token:
         return 'INT8'
     if 'fp16' in token or 'half' in token:
@@ -736,6 +734,16 @@ def _artifact_precision(artifact: ModelArtifact | None) -> str:
     if 'bf16' in token:
         return 'BF16'
     return 'FP32'
+
+
+def _artifact_precision(artifact: ModelArtifact | None) -> str:
+    """Precision shown on model cards: real detection first, then filename."""
+    if artifact is None:
+        return '-'
+    detected = detect_artifact_precision(Path(artifact.path))
+    if detected:
+        return detected
+    return _precision_from_name(artifact.name)
 
 
 def _infer_version(name: str) -> str:
