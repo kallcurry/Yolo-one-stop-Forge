@@ -173,8 +173,9 @@ class _ModelCard(QFrame):
         format_badge = QLabel(record.precision)
         format_badge.setObjectName('modelMetaBadge')
         format_badge.setToolTip(
-            '真实检测精度（权重 dtype）。\n'
-            'PT：PyTorch 权重（训练/评估/推理通用，可含 fp32 或 fp16）\n'
+            '真实检测精度（读取文件内权重/张量 dtype，非文件名猜测）。\n'
+            'PT：PyTorch 权重——Ultralytics 训练保存时即转 FP16 存储，'
+            '故训练产物常见为 FP16（官方默认，不影响评估精度）；\n'
             'ONNX：部署格式（onnxruntime / TensorRT 使用，fp16 版更快）'
         )
         badges.addWidget(task_badge)
