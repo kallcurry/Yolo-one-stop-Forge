@@ -172,6 +172,11 @@ class _ModelCard(QFrame):
         task_badge.setProperty('taskType', record.task_type)
         format_badge = QLabel(record.precision)
         format_badge.setObjectName('modelMetaBadge')
+        format_badge.setToolTip(
+            '真实检测精度（权重 dtype）。\n'
+            'PT：PyTorch 权重（训练/评估/推理通用，可含 fp32 或 fp16）\n'
+            'ONNX：部署格式（onnxruntime / TensorRT 使用，fp16 版更快）'
+        )
         badges.addWidget(task_badge)
         badges.addWidget(format_badge)
         badges.addStretch()
@@ -1342,6 +1347,11 @@ class ModelManagementView(QWidget):
         self._detail_values['framework'].setText(record.framework)
         self._detail_values['input'].setText(record.input_size)
         self._detail_values['precision'].setText(record.precision)
+        self._detail_values['precision'].setToolTip(
+            '模型精度：读取权重/onnx 张量的真实 dtype（FP32/FP16/BF16）。\n'
+            'PT 权重 = 训练产物（PyTorch）；ONNX = 部署格式。\n'
+            '*FP16/BF16 通常更快、显存更低，代价是毫厘级精度损失。'
+        )
         self._detail_values['epochs'].setText(
             f'{record.actual_epochs} / {record.planned_epochs}'
             if record.planned_epochs else str(record.actual_epochs or '-')

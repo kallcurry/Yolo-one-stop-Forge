@@ -659,9 +659,75 @@ def _format_input_size(value) -> str:
     return '-'
 
 
+def detect_artifact_precision(path: Path) -> str | None:
+    """Detect the REAL dtype of .pt weights or .onnx graph init tensors.
+
+    Returns None when the artifact cannot be inspected (missing dependency,
+    unsupported format or unreadable file); callers then fall back to the
+    filename heuristic.
+    """
+    suffix = path.suffix.lower()
+    try:
+        if suffix == '.pt':
+            import torch
+            payload = torch.load(
+                str(path), map_location='cpu', weights_only=False,
+            )
+            candidate = None
+            if isinstance(payload, dict):
+                candidate = payload.get('model')
+                if candidate is None:
+                    candidate = next(
+                        (value for value in payload.values()
+                         if isinstance(value, dict) and value),
+                        None,
+                    )
+            if hasattr(candidate, 'parameters'):
+                params = list(candidate.parameters())
+                if not params:
+                    return None
+                dtype = params[0].dtype
+            elif isinstance(candidate, dict) and candidate:
+                first = next(iter(candidate.values()))
+                dtype = getattr(first, 'dtype', None)
+            else:
+                return None
+            return _dtype_label(str(dtype))
+        if suffix == '.onnx':
+            import onnx
+            graph = onnx.load(str(path)).graph
+            for initializer in graph.initializer:
+                dtype = onnx.TensorProto.DataType.Name(
+                    initializer.data_type
+                )
+                return {
+                    'FLOAT': 'FP32', 'FLOAT16': 'FP16', 'BFLOAT16': 'BF16',
+                    'FLOAT8': 'FP8',
+                }.get(dtype, dtype)
+            return None
+    except Exception:  # noqa: BLE001 - detection is best effort
+        return None
+    return None
+
+
+def _dtype_label(dtype_text: str) -> str:
+    text = dtype_text.lower()
+    if 'float16' in text or 'half' in text:
+        return 'FP16'
+    if 'bfloat16' in text:
+        return 'BF16'
+    if 'float8' in text:
+        return 'FP8'
+    return 'FP32'
+
+
 def _artifact_precision(artifact: ModelArtifact | None) -> str:
+    """Precision shown on model cards: real detection first, then filename."""
     if artifact is None:
         return '-'
+    detected = detect_artifact_precision(Path(artifact.path))
+    if detected:
+        return detected
     token = artifact.name.lower()
     if 'int8' in token:
         return 'INT8'
