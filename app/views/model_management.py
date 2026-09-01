@@ -1301,6 +1301,7 @@ class ModelManagementView(QWidget):
             QMessageBox.warning(self, '模型转换', f'工具加载失败: {exc}')
             return
         dialog = create_convert(self, default_model=weight_path)
+        dialog.conversion_finished.connect(self.refresh_models)
         dialog.exec_()
 
     def _resolve_weight_path(self) -> str:

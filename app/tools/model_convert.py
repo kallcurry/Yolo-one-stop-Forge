@@ -12,7 +12,7 @@ import sys
 import time
 from pathlib import Path
 
-from PyQt5.QtCore import QProcess, QSettings, Qt
+from PyQt5.QtCore import QProcess, QSettings, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QDialog,
@@ -95,6 +95,8 @@ def render_temp_script(template: str, model_path: str,
 
 
 class ModelConvertDialog(QDialog):
+    conversion_finished = pyqtSignal()
+
     def __init__(self, parent=None, default_model: str = ''):
         super().__init__(parent)
         self.setWindowTitle('模型转换（.pt → ONNX）')
@@ -327,6 +329,7 @@ class ModelConvertDialog(QDialog):
             pass
         if exit_code == 0:
             self.status.setText('✅ 转换完成，输出保存在 .pt 同目录')
+            self.conversion_finished.emit()
         else:
             self.status.setText(f'❌ 转换失败（退出码 {exit_code}），详见日志')
         self._process = None
