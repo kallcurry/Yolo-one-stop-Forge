@@ -46,9 +46,24 @@ CONFIG_PATTERNS = (
 )
 
 
+FP16_BLOCK = """
+# ---- fp16 转换（GPU 友好：权重+输入半精度，配合 onnxruntime-gpu / TensorRT）----
+try:
+    import onnx
+    from onnxconverter_common import float16
+    model = onnx.load(output_path)
+    model_fp16 = float16.convert_float_to_float16(model, keep_io_types=False)
+    onnx.save(model_fp16, output_path)
+    size_mb = os.path.getsize(output_path) / (1024 * 1024)
+    print(f"✅ fp16 转换完成: {output_path}  ({size_mb:.1f} MB)")
+except Exception as exc:
+    print(f"⚠️ fp16 转换失败（已保留 fp32 ONNX）: {exc}")
+"""
+
+
 def render_temp_script(template: str, model_path: str,
                        imgsz: int, opset: int, dynamic: bool,
-                       device: str) -> str:
+                       device: str, fp16: bool = False) -> str:
     """Replace the configuration block in the template script."""
     lines = template.splitlines()
     replacements = {
@@ -73,7 +88,10 @@ def render_temp_script(template: str, model_path: str,
     missing = {'MODEL_PATH', 'IMGSZ', 'OPSET', 'DEVICE'} - replaced
     if missing:
         raise ValueError(f'脚本配置区缺少字段: {", ".join(sorted(missing))}')
-    return '\n'.join(output)
+    rendered = '\n'.join(output)
+    if fp16:
+        rendered += FP16_BLOCK
+    return rendered
 
 
 class ModelConvertDialog(QDialog):
@@ -145,6 +163,15 @@ class ModelConvertDialog(QDialog):
         ).QCheckBox('动态 batch')
         self.check_dynamic.setObjectName('trainingCheck')
         params_row.addWidget(self.check_dynamic)
+        self.check_fp16 = __import__(
+            'PyQt5.QtWidgets', fromlist=['QCheckBox']
+        ).QCheckBox('fp16 ONNX（GPU 友好）')
+        self.check_fp16.setObjectName('trainingCheck')
+        self.check_fp16.setToolTip(
+            '导出后自动转半精度：配合 onnxruntime-gpu / TensorRT 使用时速度更快、'
+            '显存更低；转换失败会保留 fp32 版本。'
+        )
+        params_row.addWidget(self.check_fp16)
         params_row.addStretch()
         layout.addLayout(params_row)
 
@@ -204,6 +231,7 @@ class ModelConvertDialog(QDialog):
                 int(self.spin_opset.value()),
                 self.check_dynamic.isChecked(),
                 self.combo_device.currentData(),
+                self.check_fp16.isChecked(),
             )
         except (OSError, ValueError) as exc:
             QMessageBox.warning(self, '无法转换', str(exc))
@@ -235,6 +263,24 @@ class ModelConvertDialog(QDialog):
                     f'onnx 安装失败，请手动执行: pip install onnx\n{result.stderr[-300:]}',
                 )
                 return
+        if self.check_fp16.isChecked():
+            try:
+                import onnxconverter_common  # noqa: F401
+            except ImportError:
+                self.status.setText('正在安装 onnxconverter-common ...')
+                import subprocess
+                result = subprocess.run(
+                    [sys.executable, '-m', 'pip', 'install',
+                     'onnxconverter-common'],
+                    capture_output=True, text=True,
+                )
+                if result.returncode != 0:
+                    QMessageBox.warning(
+                        self, '安装失败',
+                        'onnxconverter-common 安装失败，请手动执行: '
+                        f'pip install onnxconverter-common\n{result.stderr[-300:]}',
+                    )
+                    return
         temp_dir = PROJECT_ROOT / '.runtime'
         temp_dir.mkdir(parents=True, exist_ok=True)
         temp_script = temp_dir / f'model_trans_{int(time.time())}.py'
