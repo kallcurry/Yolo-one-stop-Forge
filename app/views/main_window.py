@@ -552,6 +552,8 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(self.action_tool_raw_dupcheck)
         self.action_tool_convert = QAction('标注转换与校验（JSON ⇄ YOLO TXT）', self)
         tools_menu.addAction(self.action_tool_convert)
+        self.action_tool_model_convert = QAction('模型转换（.pt → ONNX）', self)
+        tools_menu.addAction(self.action_tool_model_convert)
         tools_menu.addSeparator()
         self.action_tool_stats = QAction('数据集统计报告', self)
         tools_menu.addAction(self.action_tool_stats)

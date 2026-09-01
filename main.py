@@ -24,7 +24,7 @@ from app.controllers.app_controller import AppController
 from app.tools import (
     dataset_stats, train_val_stats, find_keypoint,
     merge_and_split, swap_labels, file_count, file_match,
-    check_duplicates, convert_validate,
+    check_duplicates, convert_validate, model_convert,
 )
 
 
@@ -169,6 +169,9 @@ def main():
     )
     win.action_tool_convert.triggered.connect(
         lambda: convert_validate.create_dialog(win).exec_()
+    )
+    win.action_tool_model_convert.triggered.connect(
+        lambda: model_convert.create_dialog(win).exec_()
     )
     win.action_tool_stats.triggered.connect(lambda: dataset_stats.create_dialog(win).exec_())
     win.action_tool_trainval.triggered.connect(lambda: train_val_stats.create_dialog(win).exec_())

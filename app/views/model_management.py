@@ -651,6 +651,11 @@ class ModelManagementView(QWidget):
         self.btn_go_infer.setToolTip('在推理中心用该模型连接实时画面预览')
         self.btn_go_infer.clicked.connect(self._emit_inference)
         heading.addWidget(self.btn_go_infer)
+        self.btn_convert = QPushButton('模型转换')
+        self.btn_convert.setObjectName('fileOpBtn')
+        self.btn_convert.setToolTip('将 .pt 导出为 ONNX（输出保存在模型同目录）')
+        self.btn_convert.clicked.connect(self._open_model_convert)
+        heading.addWidget(self.btn_convert)
         self.lbl_evaluation = QLabel('')
         self.lbl_evaluation.setObjectName('duplicateScope')
         self.lbl_evaluation.setWordWrap(True)
@@ -1279,6 +1284,18 @@ class ModelManagementView(QWidget):
         weight_path = self._resolve_weight_path()
         if weight_path:
             self.inference_requested.emit(weight_path, self._current_record.name)
+
+    def _open_model_convert(self):
+        weight_path = self._resolve_weight_path()
+        if not weight_path:
+            return
+        try:
+            from app.tools.model_convert import create_dialog as create_convert
+        except ImportError as exc:
+            QMessageBox.warning(self, '模型转换', f'工具加载失败: {exc}')
+            return
+        dialog = create_convert(self, default_model=weight_path)
+        dialog.exec_()
 
     def _resolve_weight_path(self) -> str:
         record = getattr(self, '_current_record', None)
