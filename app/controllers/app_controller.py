@@ -123,6 +123,7 @@ class AppController(QObject):
         self._tree.populate_annotation_dirs(
             normalized_path, current=self._active_annotation_dir(),
         )
+        self._watch_annotation_root(normalized_path)
         if self._training_manager is not None:
             self._training_manager.set_dataset_root(path)
         self._images = []
@@ -800,6 +801,36 @@ class AppController(QObject):
 
     def _active_annotation_dir(self) -> str:
         return current_pose_review_config().annotation_dir
+
+    def _watch_annotation_root(self, root: Path):
+        """Watch the data root so annotation-set candidates stay in sync."""
+        from PyQt5.QtCore import QFileSystemWatcher
+        watcher = getattr(self, '_annotation_watcher', None)
+        if watcher is None:
+            watcher = QFileSystemWatcher(self)
+            watcher.directoryChanged.connect(self._on_annotation_root_changed)
+            self._annotation_watcher = watcher
+        else:
+            for watched in watcher.directories():
+                watcher.removePath(watched)
+        watcher.addPath(str(root))
+
+    def _on_annotation_root_changed(self, _path: str):
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(300, self._reprobe_annotation_dirs)
+
+    def _reprobe_annotation_dirs(self):
+        root = Path(str(self._last_open_directory or ''))
+        if not root.is_dir():
+            return
+        current = self._active_annotation_dir()
+        self._tree.populate_annotation_dirs(root, current=current)
+        if (root / current).is_dir():
+            return
+        # 当前标注集已被删除：回退到含 JSON 的第一个候选
+        self._win.status_bar.showMessage(
+            f'标注集目录 {current} 已变更，请重新选择', 5000
+        )
 
     def _on_module_selected(self, module_id: str):
         if module_id in {'train', 'eval'}:

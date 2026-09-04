@@ -102,7 +102,11 @@ class DirTreePanel(QWidget):
         if not discovered:
             discovered = ['annotations']
         current = str(current or '').strip()
-        items = list(dict.fromkeys(discovered + ([current] if current else [])))
+        # 候选只包含实际存在的目录（与文件系统实时一致）；
+        # 当前标注集若已不存在则不追加，避免出现幽灵候选
+        items = list(dict.fromkeys(discovered))
+        if current and current not in items and (root / current).is_dir():
+            items.insert(0, current)
         for name in items:
             self.annotation_combo.addItem(name)
         if current and current in items:
