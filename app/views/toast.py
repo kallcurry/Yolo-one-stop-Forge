@@ -25,11 +25,13 @@ from PyQt5.QtWidgets import (
 
 from app.models.app_defaults import QSETTINGS_ORG, QSETTINGS_APP
 
+from app.models.style_tokens import color as _token_color
+
 TONE_COLORS = {
-    'info': ('#36B7FF', '信息'),
-    'success': ('#45D483', '成功'),
-    'warning': ('#F5A524', '警告'),
-    'error': ('#FF6B6B', '错误'),
+    'info': (_token_color('accent_blue'), '信息'),
+    'success': (_token_color('status_success'), '成功'),
+    'warning': (_token_color('status_warning'), '警告'),
+    'error': (_token_color('status_error'), '错误'),
 }
 
 _HISTORY_KEY = 'toastHistory'
