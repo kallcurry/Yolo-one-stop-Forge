@@ -999,28 +999,17 @@ class DetailPanel(QWidget):
         )
         metric_detail_layout.addWidget(self.metric_detail_tree, 1)
 
-        self.review_results_tabs = QTabWidget()
-        self.review_results_tabs.setObjectName('reviewResultsTabs')
-        self.review_results_tabs.addTab(self.problem_files_page, '问题文件')
-        self.review_results_tabs.addTab(self.metric_detail_page, '指标明细')
-        self.review_results_tabs.setTabEnabled(1, False)
-
-        self.review_stats_splitter = QSplitter(Qt.Vertical)
-        self.review_stats_splitter.setObjectName('analysisSplitter')
-        self.review_stats_splitter.setChildrenCollapsible(False)
-        self.review_stats_splitter.setHandleWidth(6)
-        self.review_stats_splitter.addWidget(self.review_analysis_panel)
-        self.review_stats_splitter.addWidget(self.review_results_tabs)
-        self.review_stats_splitter.setStretchFactor(0, 0)
-        self.review_stats_splitter.setStretchFactor(1, 1)
-        self.review_stats_splitter.setSizes([310, 430])
-        self._review_stats_splitter_initialized = False
+        # 信息架构减法：双 tab（审查结果 / 问题文件 / 指标明细）合并为
+        # 标注审查组内的单一 QTabWidget；拆分分栏（analysisSplitter）移除。
+        self.review_results_tabs = None
+        self._review_stats_splitter_initialized = True  # 不再有分栏要初始化
+        self.review_stats_splitter = None
 
         self.review_body_splitter = QSplitter(Qt.Vertical)
         self.review_body_splitter.setObjectName('reviewBodySplitter')
         self.review_body_splitter.setChildrenCollapsible(False)
         self.review_body_splitter.setHandleWidth(6)
-        self.review_body_splitter.addWidget(self.review_stats_splitter)
+        self.review_body_splitter.addWidget(self.review_analysis_panel)
         self.review_body_splitter.addWidget(self.review_issue_panel)
         self.review_body_splitter.setStretchFactor(0, 1)
         self.review_body_splitter.setStretchFactor(1, 0)
@@ -1028,6 +1017,9 @@ class DetailPanel(QWidget):
         self._review_body_splitter_initialized = False
         review_layout.addWidget(self.review_body_splitter, 2)
         self.tabs.addTab(review_tab, '审查')
+        self.tabs.addTab(self.problem_files_page, '问题文件')
+        self.tabs.addTab(self.metric_detail_page, '指标明细')
+        self.tabs.setTabEnabled(2, False)
 
         tree_tab = QWidget()
         tree_layout = QVBoxLayout(tree_tab)
@@ -1513,8 +1505,8 @@ class DetailPanel(QWidget):
         self.metric_detail_search.setEnabled(False)
         self.lbl_metric_search_count.setText('共 0 项')
         self.lbl_metric_detail.setText('选择图表中的柱状查看文件明细')
-        self.review_results_tabs.setCurrentIndex(0)
-        self.review_results_tabs.setTabEnabled(1, False)
+        self.tabs.setCurrentIndex(1)
+        self.tabs.setTabEnabled(2, False)
 
     def _on_chart_metric_selected(self, payload):
         if not payload:
@@ -1573,8 +1565,8 @@ class DetailPanel(QWidget):
         tree.resizeColumnToContents(0)
         tree.resizeColumnToContents(1)
         self._filter_metric_detail_rows('')
-        self.review_results_tabs.setTabEnabled(1, True)
-        self.review_results_tabs.setCurrentIndex(1)
+        self.tabs.setTabEnabled(2, True)
+        self.tabs.setCurrentIndex(2)
 
     def _filter_metric_detail_rows(self, query: str):
         if not hasattr(self, 'metric_detail_tree'):

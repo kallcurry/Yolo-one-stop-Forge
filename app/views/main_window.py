@@ -210,6 +210,7 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.btn_prev)
         bottom.addWidget(self.btn_next)
         bottom.addWidget(self.lbl_counter)
+        bottom.addWidget(self._bottom_separator())
         bottom.addWidget(self.btn_open_label_tool)
         self.btn_batch_annotate = QPushButton('标注本文件夹')
         self.btn_batch_annotate.setObjectName('fileOpBtn')
@@ -230,6 +231,7 @@ class MainWindow(QMainWindow):
         self.btn_annotation.setToolTip(
             '切换标注显示模式 (A键)\n隐藏 → 仅矩形框 → 矩形框 + 关键点'
         )
+        bottom.addWidget(self._bottom_separator())
         bottom.addWidget(self.btn_annotation)
 
         self.btn_skeleton = QPushButton('骨架线: 关')
@@ -239,6 +241,7 @@ class MainWindow(QMainWindow):
         bottom.addStretch()
 
         # Separator
+        bottom.addWidget(self._bottom_separator())
         sep = QWidget()
         sep.setObjectName('barSeparator')
         sep.setFixedWidth(1)
@@ -281,6 +284,16 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.btn_delete)
         bottom.addWidget(self.btn_rename)
         bottom.addWidget(self.btn_new_folder)
+        self.btn_toggle_panel = "QToolButton"
+        from PyQt5.QtWidgets import QToolButton as _QToolButton
+        self.btn_toggle_panel = _QToolButton()
+        self.btn_toggle_panel.setObjectName('navBtn')
+        self.btn_toggle_panel.setText('◧')
+        self.btn_toggle_panel.setCheckable(True)
+        self.btn_toggle_panel.setToolTip('显示/隐藏右侧详情面板（画布保护）')
+        self.btn_toggle_panel.setFixedWidth(34)
+        self.btn_toggle_panel.toggled.connect(self._on_toggle_detail_panel)
+        bottom.addWidget(self.btn_toggle_panel)
 
         self.data_workspace_layout.addWidget(self.bottom_bar, 0)
         self.workspace_stack.addWidget(self.data_workspace)
@@ -443,6 +456,28 @@ class MainWindow(QMainWindow):
         root_layout.addWidget(self.platform_bar, 0)
 
     # ---- Panel insertion ----
+
+    @staticmethod
+    def _bottom_separator() -> "QFrame":
+        separator = "QFrame"  # pragma: no cover - real import below
+        from PyQt5.QtWidgets import QFrame as _QFrame
+        separator = _QFrame()
+        separator.setObjectName('bottomSeparator')
+        separator.setFrameShape(_QFrame.VLine)
+        separator.setFrameShadow(_QFrame.Plain)
+        separator.setFixedHeight(26)
+        return separator
+
+    def _on_toggle_detail_panel(self, collapsed: bool):
+        """画布保护：收起右侧详情面板时画布自动占据空出的宽度。"""
+        panel = (self.top_splitter.widget(2)
+                 if self.top_splitter.count() > 2 else None)
+        if panel is not None:
+            panel.setVisible(not collapsed)
+        from PyQt5.QtCore import QSettings as _QS
+        _QS('FilesProcessQT', 'ImageManager').setValue(
+            'detailPanelCollapsed', collapsed,
+        )
 
     def set_dir_tree(self, widget: QWidget):
         self.top_splitter.insertWidget(0, widget)
@@ -1232,6 +1267,15 @@ class MainWindow(QMainWindow):
                 self.top_splitter.setSizes([int(s) for s in sizes])
             except (TypeError, ValueError):
                 pass
+        else:
+            total = max(self.width(), 1200)
+            self.top_splitter.setSizes([
+                int(total * 0.18), int(total * 0.62), int(total * 0.20),
+            ])
+        # 恢复右面板折叠状态（画布保护）
+        collapsed = bool(settings.value('detailPanelCollapsed', False))
+        if hasattr(self, 'btn_toggle_panel'):
+            self.btn_toggle_panel.setChecked(collapsed)
 
     def closeEvent(self, event):
         # Let the controller persist the currently opened data root before the
