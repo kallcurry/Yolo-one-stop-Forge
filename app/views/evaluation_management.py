@@ -282,6 +282,10 @@ class EvaluationManagementView(QWidget):
         self.header_badge = QLabel('LOCAL · SINGLE TASK')
         self.header_badge.setObjectName('trainingEnvironmentBadge')
         title_row.addWidget(self.header_badge)
+        self.task_badge = QLabel('TASK · -')
+        self.task_badge.setObjectName('trainingEnvironmentBadge')
+        self.task_badge.setProperty('environmentTone', 'cyan')
+        title_row.addWidget(self.task_badge)
         header_layout.addLayout(title_row)
         layout.addWidget(header)
 
@@ -902,6 +906,14 @@ class EvaluationManagementView(QWidget):
                 self.edit_model_label.setText(Path(current).parent.parent.name)
             except (OSError, AttributeError):
                 pass
+
+    def set_scope_task(self, task_type: str):
+        """Sync the platform-wide task selection into this center."""
+        label = {
+            'pose': 'POSE', 'detect': 'DETECTION',
+            'segment': 'SEGMENTATION', 'obb': 'OBB',
+        }.get(str(task_type), str(task_type).upper())
+        self.task_badge.setText(f'TASK · {label}')
 
     def set_model_repository(self, repo_path: str):
         """Link the model-management repository into this view's choices."""

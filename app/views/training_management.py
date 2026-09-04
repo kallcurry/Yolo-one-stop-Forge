@@ -1514,6 +1514,10 @@ class TrainingManagementView(QWidget):
             self.existing_batch_tree.setCurrentItem(selected_item)
         self._inspect_selected_existing_batch()
 
+    def set_scope_task(self, task_type: str):
+        """Sync the training center to the platform-wide task selection."""
+        self._set_task(task_type)
+
     def _set_task(self, task_type: str):
         task_type = str(task_type or 'pose')
         if task_type not in TASK_LABELS:

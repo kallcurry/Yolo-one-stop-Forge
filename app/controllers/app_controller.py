@@ -601,9 +601,14 @@ class AppController(QObject):
         self._apply_pose_template(template_id)
 
     def on_data_task_selected(self, task_type: str):
-        """Switch the platform data-review task."""
+        """Switch the platform-wide task: data review + other centers."""
         template_id = self._template_id_for_task(task_type)
         self._apply_pose_template(template_id)
+        # 全模块任务联动：训练中心(数据准备模板/目录) + 评估中心(任务徽章)
+        if getattr(self, '_training_manager', None) is not None:
+            self._training_manager.set_scope_task(task_type)
+        if getattr(self, '_evaluation_manager', None) is not None:
+            self._evaluation_manager.set_scope_task(task_type)
 
     def refresh(self):
         """Reload current directory listing and tree."""

@@ -2404,6 +2404,12 @@ QLabel#trainingEnvironmentBadge {
     font-weight: 800;
 }
 
+QLabel#trainingEnvironmentBadge[environmentTone="cyan"] {
+    background-color: rgba(54, 183, 255, 20);
+    color: #7FD4FF;
+    border: 1px solid rgba(54, 183, 255, 80);
+}
+
 QWidget#trainingStepRail {
     background-color: rgba(7, 17, 26, 224);
     border: 1px solid rgba(111, 151, 184, 62);
