@@ -384,6 +384,7 @@ class EvaluationManagementView(QWidget):
         layout.setSpacing(10)
 
         metrics = QHBoxLayout()
+        self.metrics_row = metrics
         self.metric_total = self._metric(metrics, '总任务')
         self.metric_queued = self._metric(metrics, '排队中')
         self.metric_running = self._metric(metrics, '运行中')
@@ -1233,6 +1234,8 @@ class EvaluationManagementView(QWidget):
         self._visible_cards = [self._build_task_card(record) for record in visible]
         self._relayout_cards()
         self.lbl_empty.setVisible(not visible)
+        # 空态优先：无任何任务时隐藏全 0 统计卡，只保留引导空态
+        self.metrics_row.setVisible(bool(records))
 
     def _build_task_card(self, record: EvaluationTaskRecord) -> QFrame:
         card = QFrame()

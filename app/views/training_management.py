@@ -1678,6 +1678,15 @@ class TrainingManagementView(QWidget):
             if record.status in {'failed', 'interrupted'}:
                 item.setForeground(0, QBrush(QColor('#FF8090')))
             self.task_tree.addTopLevelItem(item)
+            # 进度条列：以 QProgressBar 呈现进度（专业密度、一屏可读）
+            percent = self._task_progress_percent(record)
+            progress_bar = QProgressBar()
+            progress_bar.setObjectName('taskProgressBar')
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(percent)
+            progress_bar.setTextVisible(True)
+            progress_bar.setFixedWidth(150)
+            self.task_tree.setItemWidget(item, 4, progress_bar)
             self._task_items[record.task_id] = item
             if record.task_id == selected:
                 selected_item = item
@@ -2305,6 +2314,16 @@ class TrainingManagementView(QWidget):
             candidate = f'{base}-{index}'
             index += 1
         return candidate
+
+    def _task_progress_percent(self, record) -> int:
+        """Progress percent for the task-table progress bar column."""
+        try:
+            done, total = self._task_progress_text(record).split('/')
+            if float(total) == 0:
+                return 0
+            return int(round(float(done) / float(total) * 100))
+        except (ValueError, ZeroDivisionError):
+            return 0
 
     @staticmethod
     def _task_progress_text(record: TrainingTaskRecord) -> str:
