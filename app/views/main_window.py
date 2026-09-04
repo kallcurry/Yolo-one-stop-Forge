@@ -395,6 +395,16 @@ class MainWindow(QMainWindow):
             self.task_actions[task_type] = action
             self._task_labels[task_type] = label
 
+        from app.views.toast import ToastManager, MessageCenterDialog
+        self.toast_manager = ToastManager(self)
+
+        self.btn_message_center = QToolButton()
+        self.btn_message_center.setObjectName('navBtn')
+        self.btn_message_center.setText('📢')
+        self.btn_message_center.setToolTip('消息中心（重要状态变更归档）')
+        self.btn_message_center.setFixedWidth(34)
+        self.btn_message_center.clicked.connect(self._open_message_center)
+
         self.btn_task_picker = QToolButton()
         self.btn_task_picker.setObjectName('taskPickerBtn')
         self.btn_task_picker.setToolTip('切换数据任务')
@@ -427,6 +437,7 @@ class MainWindow(QMainWindow):
         self.btn_workspace_menu.setMinimumHeight(32)
         self.btn_workspace_menu.setMaximumHeight(34)
         action_row.addWidget(self.btn_task_picker)
+        action_row.addWidget(self.btn_message_center)
         action_row.addWidget(self.btn_workspace_menu)
         top_row.addWidget(self.action_dock)
 
@@ -1068,6 +1079,17 @@ class MainWindow(QMainWindow):
 
         # 强制更新chrome几何
         QTimer.singleShot(0, self._sync_chrome_geometry)
+
+    def _open_message_center(self):
+        from app.views.toast import MessageCenterDialog
+        dialog = MessageCenterDialog(self)
+        self._message_center_dialog = dialog
+        dialog.exec_()
+
+    def toast(self, text: str, tone: str = 'info', duration_ms: int = 3200):
+        """便捷入口：toast + 归档消息中心。"""
+        from app.views.toast import world_toast
+        world_toast(self, text, tone, duration_ms)
 
     def _select_task(self, task_type: str, emit: bool = True):
         task_type = str(task_type or 'pose')

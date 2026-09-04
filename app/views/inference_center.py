@@ -566,6 +566,8 @@ class InferenceCenterView(QWidget):
         )
 
     def _on_worker_error(self, message: str):
+        from app.views.toast import notify_any
+        notify_any(self, f'推理线程异常: {message}', 'error')
         self.status_label.setText(f'错误：{message}')
         QMessageBox.warning(self, '推理错误', message)
 

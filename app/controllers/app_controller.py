@@ -547,6 +547,8 @@ class AppController(QObject):
                 + (f"，{failed} 个失败" if failed else '')
             )
             self._win.status_bar.showMessage(text, 5000)
+            if hasattr(self._win, 'toast'):
+                self._win.toast(text, 'success' if not failed else 'warning')
         self.refresh()
         self._refresh_review_decision_views('文件夹标注完成')
 

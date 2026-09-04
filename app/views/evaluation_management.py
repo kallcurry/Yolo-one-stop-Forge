@@ -1168,6 +1168,11 @@ class EvaluationManagementView(QWidget):
         if record is None:
             return
         if record.status == 'stopped':
+            from app.views.toast import notify_any
+            notify_any(
+                self, f'评估任务已停止：{record.spec.get("model_label", "")}',
+                'warning',
+            )
             self._registry.update(
                 record.task_id, error=f'用户停止（进程退出码 {exit_code}）'
             )
@@ -1196,6 +1201,23 @@ class EvaluationManagementView(QWidget):
         else:
             error = '评估进程退出码非 0'
             self._registry.update(record.task_id, status='failed', error=error)
+        from app.views.toast import notify_any
+        _latest = self._registry.get(record.task_id)
+        if _latest is not None and _latest.status == 'completed':
+            metrics = _latest.summary or {}
+            notify_any(
+                self,
+                f'评估完成：{record.spec.get("model_label", "")} @ '
+                f'{record.spec.get("test_batch", "")} '
+                f'mAP50-95 {metrics.get("mAP50-95")}',
+                'success',
+            )
+        elif _latest is not None and _latest.status == 'failed':
+            notify_any(
+                self,
+                f'评估失败：{record.spec.get("model_label", "")}',
+                'error',
+            )
         self.refresh_tasks()
         self._resume_queued()
 
