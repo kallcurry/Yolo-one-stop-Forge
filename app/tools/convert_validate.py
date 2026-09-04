@@ -78,7 +78,8 @@ class ConvertValidateDialog(QDialog):
         self.setMinimumSize(900, 700)
         self.resize(1080, 780)
         self._threads: list[QThread] = []
-        QTimer.singleShot(200, self._refresh_scope_list)
+        QTimer.singleShot(200, self._auto_fix_annotation_dir)
+        QTimer.singleShot(220, self._refresh_scope_list)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -147,10 +148,25 @@ class ConvertValidateDialog(QDialog):
 
     # ---- inputs ----
 
+    def _auto_fix_annotation_dir(self):
+        """When the annotation dir does not exist, adopt the actual variant."""
+        root = Path(self.edit_root.text().strip()).expanduser()
+        current = self.edit_annotation_dir.text().strip() or 'annotations'
+        if not root.is_dir() or (root / current).is_dir():
+            return
+        candidates = sorted(
+            child.name for child in root.iterdir()
+            if child.is_dir() and child.name.lower().startswith('annotation')
+        )
+        if len(candidates) == 1:
+            self.edit_annotation_dir.setText(candidates[0])
+            self.summary.setText(f'已自动匹配标注目录：{candidates[0]}')
+
     def _pick_root(self):
         path = QFileDialog.getExistingDirectory(self, '选择数据根目录', self.edit_root.text())
         if path:
             self.edit_root.setText(path)
+            self._auto_fix_annotation_dir()
 
     def _pick_config(self):
         path, _filter = QFileDialog.getOpenFileName(
@@ -163,6 +179,7 @@ class ConvertValidateDialog(QDialog):
             _save_config_path(path)
 
     def _refresh_scope_list(self):
+        self._auto_fix_annotation_dir()
         self.combo_scope.clear()
         self.combo_scope.addItem('全部数据目录', '')
         _root, ann_root, _lbl = self._resolved_dirs()
@@ -317,7 +334,10 @@ class ConvertValidateDialog(QDialog):
         walk_root = (ann_root / scope) if scope else ann_root
         json_files = sorted(walk_root.rglob('*.json'))
         if not json_files:
-            self.summary.setText('所选范围内没有 JSON 文件。')
+            self.summary.setText(
+                '所选范围内没有 JSON 文件（请检查【标注目录】是否正确，'
+                f'当前为：{self.edit_annotation_dir.text().strip() or "annotations"}）。'
+            )
             return
         chunks = []
         for json_file in json_files[:60]:
