@@ -310,6 +310,36 @@ def _atomic_replace(target: Path, payload: bytes, source: Path):
             os.unlink(temporary_name)
 
 
+def synchronize_annotation_folder(
+    annotation_set_dir: str | Path,
+    dataset_root: str | Path | None = None,
+) -> tuple[int, int]:
+    """Sync every annotation JSON in a folder to its replicas.
+
+    Returns (synced_files, failed_files).
+    """
+    ann_dir = Path(annotation_set_dir)
+    if not ann_dir.is_dir():
+        return 0, 0
+    synced = 0
+    failed = 0
+    import json as _json
+    for annotation_path in sorted(ann_dir.glob('*.json')):
+        if not annotation_path.is_file():
+            continue
+        try:
+            payload = annotation_path.read_bytes()
+            _validate_annotation_json(payload, annotation_path)
+            result = synchronize_annotation_replicas(
+                annotation_path, dataset_root,
+                annotation_dir=str(ann_dir.name),
+            )
+            synced += 1 if result else 0
+        except (OSError, ValueError, AnnotationSyncError) as exc:
+            failed += 1
+    return synced, failed
+
+
 def _is_within(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)

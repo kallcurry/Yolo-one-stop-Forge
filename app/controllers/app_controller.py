@@ -17,6 +17,8 @@ from app.models.file_system import (
     list_images,
     create_folder as fs_create_folder,
 )
+from app.models.annotation_sync import synchronize_annotation_folder
+from app.models.label_tool import build_xanylabeling_folder_command
 from app.models.annotation_review import (
     TASK_PRESETS,
     apply_pose_review_config,
@@ -463,44 +465,78 @@ class AppController(QObject):
             f'已打开标注工具: {img_path.name}', 3000
         )
 
-    def _set_batch_annotate(self, active: bool):
-        self._batch_annotate = bool(active)
-        btn = getattr(self._win, 'btn_batch_annotate', None)
-        if btn is not None:
-            btn.setChecked(self._batch_annotate)
-            btn.setText(
-                '停止连续标注' if self._batch_annotate
-                else '连续标注本文件夹'
-            )
-        if not active:
-            self._win.status_bar.showMessage('已退出连续标注模式', 3000)
+    def on_annotate_folder(self):
+        """标注本文件夹：X-AnyLabeling 单窗口 + 图库加载全部图片。
 
-    def on_toggle_batch_annotate(self, checked: bool):
-        """连续标注本文件夹：逐张打开标注工具并自动翻页。"""
-        if checked:
-            self._batch_annotate = True
-            self._win.status_bar.showMessage(
-                '连续标注模式已开启：修改并保存后自动进入下一张', 4000
-            )
-            self.on_open_label_tool()
-            if not self._batch_annotate:
-                return
-        else:
-            self._set_batch_annotate(False)
-
-    def _advance_batch_annotate(self):
-        """After a label-tool session ends: jump to the next image and reopen."""
-        if not self._batch_annotate:
+        ``--filename`` 接受目录时工具会自动加载整个文件夹；保存的 JSON
+        始终写入标注集目录（--output），不污染图片目录。
+        """
+        if not self._images:
+            QMessageBox.information(self._win, '没有图片', '请先选择一个图片文件夹。')
             return
-        if self._current_index >= len(self._images) - 1:
-            self._set_batch_annotate(False)
-            self._win.status_bar.showMessage(
-                '✅ 本文件夹连续标注完成', 5000
+        img_dir = self._images[0].parent
+        ann_dir = annotation_set_dir_for_image(
+            self._images[0], annotation_dir=self._active_annotation_dir(),
+        )
+        if ann_dir is None:
+            QMessageBox.warning(
+                self._win, '标注目录错误',
+                f'无法定位标注集目录：{self._active_annotation_dir()}',
             )
             return
-        self._navigate_next()
-        from PyQt5.QtCore import QTimer
-        QTimer.singleShot(120, self.on_open_label_tool)
+        try:
+            ann_dir.mkdir(parents=True, exist_ok=True)
+            command = build_xanylabeling_folder_command(
+                img_dir, ann_dir,
+            )
+        except FileNotFoundError as exc:
+            QMessageBox.warning(self._win, '未找到标注工具', str(exc))
+            return
+
+        process = QProcess(self)
+        process.setProgram(command[0])
+        process.setArguments(command[1:])
+        process.setWorkingDirectory(str(img_dir))
+        process.setProcessChannelMode(QProcess.ForwardedChannels)
+        environment = QProcessEnvironment.systemEnvironment()
+        environment.remove('QT_QPA_PLATFORM_PLUGIN_PATH')
+        environment.remove('QT_PLUGIN_PATH')
+        process.setProcessEnvironment(environment)
+        process.setProperty('mode', 'folder')
+        process.setProperty('annotation_set_dir', str(ann_dir))
+        process.setProperty('dataset_root', self._last_open_directory)
+        process.setProperty('annotation_dir', self._active_annotation_dir())
+        process.finished.connect(
+            lambda _code, _status, p=process: self._on_label_tool_finished(p)
+        )
+        process.errorOccurred.connect(
+            lambda _error, p=process: self._on_label_tool_error(p)
+        )
+        self._label_tool_processes.append(process)
+        log(f'🧰 启动文件夹标注: {command_to_text(command)}')
+        process.start()
+        if not process.waitForStarted(4000):
+            self._on_label_tool_error(process)
+            return
+        self._win.status_bar.showMessage(
+            f'已打开文件夹标注窗口: {img_dir.name}（图库加载全部图片）', 5000
+        )
+
+    def _on_annotation_folder_finished(self, process: QProcess):
+        """Batch finish: sync changed JSONs to their replicas + refresh review."""
+        ann_dir = Path(str(process.property('annotation_set_dir') or ''))
+        root = process.property('dataset_root') or None
+        if ann_dir.is_dir():
+            synced, failed = synchronize_annotation_folder(
+                ann_dir, dataset_root=root,
+            )
+            text = (
+                f'文件夹标注完成：同步 {synced} 个标注副本'
+                + (f"，{failed} 个失败" if failed else '')
+            )
+            self._win.status_bar.showMessage(text, 5000)
+        self.refresh()
+        self._refresh_review_decision_views('文件夹标注完成')
 
     def on_reorder_folder_keypoints(self):
         """Reorder keypoints for every annotation in the current folder."""
@@ -669,8 +705,9 @@ class AppController(QObject):
 
     def _on_label_tool_finished(self, process: QProcess):
         self._discard_label_tool_process(process)
-        if self._batch_annotate:
-            self._advance_batch_annotate()
+        if process.property('mode') == 'folder':
+            self._on_annotation_folder_finished(process)
+            return
 
         image_path = Path(process.property('image_path') or '')
         annotation_path = Path(process.property('annotation_path') or '')
@@ -814,7 +851,7 @@ class AppController(QObject):
         win.action_open_label_tool.triggered.connect(self.on_open_label_tool)
         btn_batch = getattr(win, 'btn_batch_annotate', None)
         if btn_batch is not None:
-            btn_batch.toggled.connect(self.on_toggle_batch_annotate)
+            btn_batch.clicked.connect(self.on_annotate_folder)
         win.task_selected.connect(self.on_data_task_selected)
         win.model_return_requested.connect(self.return_to_model_details)
         if hasattr(win, 'training_return_requested'):

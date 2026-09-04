@@ -109,6 +109,31 @@ def build_xanylabeling_command(
     ]
 
 
+def build_xanylabeling_folder_command(
+    image_dir: str | Path,
+    annotation_dir: str | Path,
+    program: list[str] | None = None,
+) -> list[str]:
+    """Open a whole image folder in X-AnyLabeling (one window, gallery).
+
+    The ``--filename`` flag accepts a directory and loads every matching
+    image; ``--output`` receives the annotation directory so JSONs stay
+    next to their siblings (not the image folder).
+    """
+    image_dir_path = Path(image_dir).resolve()
+    annotation_dir_path = Path(annotation_dir).resolve()
+    prefix = list(program) if program is not None else resolve_xanylabeling_program()
+
+    return prefix + [
+        '--filename',
+        str(image_dir_path),
+        '--output',
+        str(annotation_dir_path),
+        '--nodata',
+        '--no-auto-update-check',
+    ]
+
+
 def command_to_text(command: list[str]) -> str:
     """Format a command for logs and error messages."""
     return ' '.join(shlex.quote(part) for part in command)
