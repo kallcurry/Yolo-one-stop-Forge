@@ -24,9 +24,9 @@ from typing import Any, Iterable
 
 import yaml
 
-IMAGE_EXTENSIONS = {
-    '.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'
-}
+from app.models.app_defaults import image_extensions as _image_extensions
+
+IMAGE_EXTENSIONS = _image_extensions()
 
 TASK_FROM_TYPE = {
     'pose': 'pose',

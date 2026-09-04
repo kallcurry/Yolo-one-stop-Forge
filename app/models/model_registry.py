@@ -72,7 +72,9 @@ SERIES_LABELS = {
     'lr/pg2': 'Learning Rate / Group 2',
 }
 
-IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.webp'}
+from app.models.app_defaults import image_extensions as _image_extensions
+
+IMAGE_EXTENSIONS = _image_extensions()
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,9 @@ from pathlib import Path
 
 from app.utils import log
 
-IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp'}
+from app.models.app_defaults import image_extensions as _image_extensions
+
+IMAGE_EXTENSIONS = _image_extensions()
 DEFAULT_ANNOTATION_DIR = 'annotations'
 
 

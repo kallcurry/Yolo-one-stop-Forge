@@ -23,9 +23,9 @@ from app.models.annotation_schema import (
 )
 
 
-IMAGE_EXTENSIONS = {
-    '.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp',
-}
+from app.models.app_defaults import image_extensions as _image_extensions
+
+IMAGE_EXTENSIONS = _image_extensions()
 TEST_LIST_FILE = 'test_list.txt'
 
 

@@ -1876,7 +1876,8 @@ class AppController(QObject):
     def _on_files_dropped(self, dest: str, sources: list):
         """Handle drag-drop of image files onto a directory tree item."""
         # Filter to only image files
-        img_exts = {'.jpg', '.jpeg', '.png', '.bmp'}
+        from app.models.app_defaults import image_extensions
+        img_exts = image_extensions()
         img_paths = [p for p in sources
                      if isinstance(p, Path) and p.suffix.lower() in img_exts]
         if not img_paths:
