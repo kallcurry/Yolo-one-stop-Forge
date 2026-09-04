@@ -96,6 +96,17 @@ class AppController(QObject):
 
         self._connect_own_signals()
         self._load_saved_pose_review_config()
+        # 构造期状态对齐：模板决定的全局任务同步到主窗口与各中心
+        # （避免 win=pose / 全局=obb 的错位导致联动判定失效）
+        from app.models.annotation_review import current_pose_review_config
+        aligned = str(current_pose_review_config().task_type or 'pose')
+        if str(getattr(self._win, '_current_task_type', 'pose')) != aligned:
+            self._win.select_task(aligned, emit=False)
+        # 无条件广播（幂等）：构造完成后各中心的徽章/模板与全局任务一致
+        try:
+            self.on_data_task_selected(aligned)
+        except Exception:  # noqa: BLE001 - 构造期广播失败不阻断启动
+            pass
 
     # --- Public API for main.py ---
 
@@ -686,6 +697,7 @@ class AppController(QObject):
         )
         template_id = self._template_id_for_task(task_type)
         self._apply_pose_template(template_id)
+        self._sync_tree_annotation_dirs()
         # 全模块任务联动：训练中心(数据准备模板/目录) + 评估中心(任务徽章)
         if getattr(self, '_training_manager', None) is not None:
             self._training_manager.set_scope_task(task_type)
@@ -842,6 +854,15 @@ class AppController(QObject):
         set_active_annotation_dir(name)
         self._load_current()
         self._refresh_review_decision_views('标注集已切换')
+        self._sync_tree_annotation_dirs()
+
+    def _sync_tree_annotation_dirs(self):
+        """Keep the data-tree annotation-set dropdown in sync."""
+        root = Path(str(self._last_open_directory or ''))
+        if root.is_dir() and getattr(self, '_tree', None) is not None:
+            self._tree.populate_annotation_dirs(
+                root, current=self._active_annotation_dir(),
+            )
 
     def _find_annotation(self, image_path: Path) -> Path | None:
         return find_annotation(
@@ -884,6 +905,9 @@ class AppController(QObject):
         )
         win.btn_open_label_tool.clicked.connect(self.on_open_label_tool)
         win.action_open_label_tool.triggered.connect(self.on_open_label_tool)
+        training = getattr(self, '_training_manager', None)
+        if training is not None and hasattr(training, 'scope_task_requested'):
+            training.scope_task_requested.connect(win.select_task)
         btn_batch = getattr(win, 'btn_batch_annotate', None)
         if btn_batch is not None:
             btn_batch.clicked.connect(self.on_annotate_folder)

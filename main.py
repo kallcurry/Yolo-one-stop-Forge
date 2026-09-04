@@ -183,6 +183,13 @@ def main():
     win.show()
     fade_in_window(win)
 
+    # 启动恢复全局任务（在打开数据目录之前，触发完整联动链）
+    saved_task = str(QSettings('FilesProcessQT', 'ImageManager').value(
+        'lastTaskType', ''
+    ) or '')
+    if saved_task in {'pose', 'detection', 'segmentation', 'obb'}:
+        win.select_task(saved_task, emit=True)
+
     # Auto-open last directory, or prompt
     last_dir = ctrl.last_directory()
     if last_dir and os.path.isdir(last_dir):

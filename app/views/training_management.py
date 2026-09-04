@@ -357,7 +357,7 @@ class TrainingManagementView(QWidget):
         for task_type, label in TASK_LABELS.items():
             self.task_combo.addItem(label, task_type)
         self.task_combo.currentIndexChanged.connect(
-            lambda: self._set_task(self.task_combo.currentData())
+            self._on_task_combo_changed
         )
         setup_layout.addWidget(self.task_combo, 0, 1)
 
@@ -1513,6 +1513,15 @@ class TrainingManagementView(QWidget):
         if selected_item is not None:
             self.existing_batch_tree.setCurrentItem(selected_item)
         self._inspect_selected_existing_batch()
+
+    scope_task_requested = pyqtSignal(str)
+
+    def _on_task_combo_changed(self):
+        task = self.task_combo.currentData()
+        if not task:
+            return
+        self._set_task(task)
+        self.scope_task_requested.emit(str(task))
 
     def set_scope_task(self, task_type: str):
         """Sync the training center to the platform-wide task selection."""
