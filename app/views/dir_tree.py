@@ -6,6 +6,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QStandardItem, QStandardItemModel
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QPushButton,
     QComboBox,
     QLabel,
     QHBoxLayout,
@@ -50,14 +51,16 @@ class DirTreePanel(QWidget):
         selector = QHBoxLayout()
         selector.setContentsMargins(8, 6, 8, 2)
         selector.setSpacing(6)
-        caption = QLabel('标注集')
+        caption = QLabel('标注集（点击切换）')
         caption.setObjectName('captionLabel')
+        caption.setToolTip('下拉列出当前数据目录的全部标注集，切换即生效')
         selector.addWidget(caption)
         self.annotation_combo = QComboBox()
         self.annotation_combo.setObjectName('smallCombo')
         self.annotation_combo.setEditable(True)
         self.annotation_combo.setToolTip(
-            '当前数据目录使用的标注集目录名（自动探测后可选）'
+            '点击下拉即可切换当前目录的标注集（annotations / annotations-obb …），'
+            '选择后立即生效并刷新当前图片'
         )
         self.annotation_combo.currentIndexChanged.connect(
             self._emit_annotation_dir

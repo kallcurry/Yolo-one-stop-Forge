@@ -1060,7 +1060,7 @@ class MainWindow(QMainWindow):
         for key, module_button in self.module_buttons.items():
             module_button.setChecked(key == module_id)
         self.workspace_stack.setCurrentWidget(page)
-        self.btn_task_picker.setVisible(module_id == 'data')
+        self.btn_task_picker.setVisible(module_id in {'data', 'train', 'eval'})
         data_active = module_id == 'data'
         for shortcut in getattr(self, '_data_shortcuts', ()):
             shortcut.setEnabled(data_active)

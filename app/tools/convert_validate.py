@@ -79,7 +79,8 @@ class ConvertValidateDialog(QDialog):
         self.resize(1080, 780)
         self._threads: list[QThread] = []
         QTimer.singleShot(200, self._auto_fix_annotation_dir)
-        QTimer.singleShot(220, self._refresh_scope_list)
+        QTimer.singleShot(230, self._refresh_annotation_dir_options)
+        QTimer.singleShot(260, self._refresh_scope_list)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -148,10 +149,31 @@ class ConvertValidateDialog(QDialog):
 
     # ---- inputs ----
 
+    def _refresh_annotation_dir_options(self):
+        """Fill the annotation-set dropdown with variants found in the root."""
+        root = Path(self.edit_root.text().strip()).expanduser()
+        current = self.edit_annotation_dir.currentText().strip() or 'annotations'
+        candidates = []
+        if root.is_dir():
+            try:
+                candidates = sorted(
+                    child.name for child in root.iterdir()
+                    if child.is_dir()
+                    and child.name.lower().startswith('annotation')
+                )
+            except OSError:
+                candidates = []
+        items = list(dict.fromkeys(candidates + [current]))
+        self.edit_annotation_dir.blockSignals(True)
+        self.edit_annotation_dir.clear()
+        self.edit_annotation_dir.addItems(items)
+        self.edit_annotation_dir.setCurrentText(current)
+        self.edit_annotation_dir.blockSignals(False)
+
     def _auto_fix_annotation_dir(self):
         """When the annotation dir does not exist, adopt the actual variant."""
         root = Path(self.edit_root.text().strip()).expanduser()
-        current = self.edit_annotation_dir.text().strip() or 'annotations'
+        current = self.edit_annotation_dir.currentText().strip() or 'annotations'
         if not root.is_dir():
             return
         current_dir = root / current
@@ -166,7 +188,7 @@ class ConvertValidateDialog(QDialog):
             if child.is_dir() and child.name.lower().startswith('annotation')
         )
         if len(candidates) == 1:
-            self.edit_annotation_dir.setText(candidates[0])
+            self.edit_annotation_dir.setCurrentText(candidates[0])
             self.summary.setText(f'已自动匹配标注目录：{candidates[0]}')
             return
 
@@ -183,17 +205,19 @@ class ConvertValidateDialog(QDialog):
         if not _contains_json(current):
             for candidate in candidates:
                 if candidate != current and _contains_json(candidate):
-                    self.edit_annotation_dir.setText(candidate)
+                    self.edit_annotation_dir.setCurrentText(candidate)
                     self.summary.setText(
                         f'已自动匹配标注目录（含 JSON）：{candidate}'
                     )
                     return
+        self._refresh_annotation_dir_options()
 
     def _pick_root(self):
         path = QFileDialog.getExistingDirectory(self, '选择数据根目录', self.edit_root.text())
         if path:
             self.edit_root.setText(path)
             self._auto_fix_annotation_dir()
+            self._refresh_annotation_dir_options()
 
     def _pick_config(self):
         path, _filter = QFileDialog.getOpenFileName(
@@ -238,7 +262,7 @@ class ConvertValidateDialog(QDialog):
         # 按任务更新默认目录（多任务数据并存：labels / labels-det / ...）
         preset = TASK_PRESETS.get(config.task_type, {})
         if preset.get('annotation_dir'):
-            self.edit_annotation_dir.setText(str(preset['annotation_dir']))
+            self.edit_annotation_dir.setCurrentText(str(preset['annotation_dir']))
         if preset.get('label_dir'):
             self.edit_label_dir.setText(str(preset['label_dir']))
         return config
@@ -248,7 +272,7 @@ class ConvertValidateDialog(QDialog):
         if not root.is_dir():
             QMessageBox.warning(self, '目录无效', f'数据根目录不存在: {root}')
             return None, None, None
-        annotation_dir = self.edit_annotation_dir.text().strip() or 'annotations'
+        annotation_dir = self.edit_annotation_dir.currentText().strip() or 'annotations'
         label_dir = self.edit_label_dir.text().strip() or 'labels'
         return root, root / annotation_dir, root / label_dir
 
@@ -261,7 +285,13 @@ class ConvertValidateDialog(QDialog):
 
         dir_row = QHBoxLayout()
         dir_row.addWidget(QLabel('标注目录'))
-        self.edit_annotation_dir = QLineEdit('annotations')
+        self.edit_annotation_dir = QComboBox()
+        self.edit_annotation_dir.setObjectName('trainingCombo')
+        self.edit_annotation_dir.setEditable(True)
+        self.edit_annotation_dir.setToolTip(
+            '当前数据目录下的标注集目录（下拉可切换，也可直接输入任意名称）'
+        )
+        self.edit_annotation_dir.setCurrentText('annotations')
         dir_row.addWidget(self.edit_annotation_dir, 1)
         dir_row.addWidget(QLabel('标签目录'))
         self.edit_label_dir = QLineEdit('labels')
@@ -363,7 +393,7 @@ class ConvertValidateDialog(QDialog):
         if not json_files:
             self.summary.setText(
                 '所选范围内没有 JSON 文件（请检查【标注目录】是否正确，'
-                f'当前为：{self.edit_annotation_dir.text().strip() or "annotations"}）。'
+                f'当前为：{self.edit_annotation_dir.currentText().strip() or "annotations"}）。'
             )
             return
         chunks = []
