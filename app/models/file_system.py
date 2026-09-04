@@ -138,6 +138,15 @@ def expected_annotation_path(image_path: str | Path,
         root = _get_separated_root(img.parent, annotation_dir)
         if root is None:
             return None
+        # 兼容连字符/下划线变体（annotations-obb ↔ annotations_obb）
+        for variant in _annotation_dir_variants(annotation_dir):
+            if (root / variant).is_dir():
+                images_root = root / 'images'
+                try:
+                    rel = img.parent.relative_to(images_root)
+                except ValueError:
+                    return None
+                return root / variant / rel / json_name
         # figure out which subdirectory the image is in
         images_root = root / 'images'
         try:
@@ -173,6 +182,18 @@ def find_annotation(image_path: str | Path,
         return None
 
     return candidate if candidate.is_file() else None
+
+
+def _annotation_dir_variants(annotation_dir: str) -> list[str]:
+    """Annotation-set names: canonical (dashes) plus underscore variants."""
+    names = [annotation_dir]
+    swapped = annotation_dir.replace('-', '_')
+    if swapped != annotation_dir:
+        names.append(swapped)
+    swapped_back = annotation_dir.replace('_', '-')
+    if swapped_back != annotation_dir and swapped_back not in names:
+        names.append(swapped_back)
+    return names
 
 
 def _annotation_dir_name(annotation_dir: str | Path) -> str:

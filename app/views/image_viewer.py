@@ -10,12 +10,14 @@ import json
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QPoint, QPointF, QRectF, pyqtSignal
+from PyQt5.QtCore import QPointF
 from PyQt5.QtGui import (
     QBrush,
     QColor,
     QPainter,
     QPen,
     QPixmap,
+    QPolygonF,
 )
 from PyQt5.QtWidgets import QLabel, QScrollArea
 
@@ -322,6 +324,29 @@ class ImageViewer(QScrollArea):
                     n_kpt += 1
 
                 else:
+                    # OBB 旋转框（X-AnyLabeling shape_type='rotation'）：
+                    # 按四角点画闭合多边形；不影响其他任务绘制分支
+                    shape_type = str(
+                        shape.get('shape_type') or shape.get('type') or ''
+                    ).strip()
+                    if shape_type == 'rotation' and len(points) >= 3:
+                        polygon = QPolygonF([
+                            QPointF(float(pt[0]) * sx, float(pt[1]) * sy)
+                            for pt in points
+                        ])
+                        painter.setPen(rect_pen)
+                        painter.setBrush(QColor(54, 183, 255, 42))
+                        painter.drawPolygon(polygon)
+                        painter.setBrush(Qt.NoBrush)
+                        label_x = float(points[0][0]) * sx
+                        label_y = float(points[0][1]) * sy
+                        painter.setPen(text_color)
+                        painter.drawText(
+                            QPointF(label_x, label_y - 6), str(label)
+                        )
+                        n_bbox += 1
+                        continue
+
                     # Multi-point shape → draw bounding box + label
                     xs = [p[0] for p in points]
                     ys = [p[1] for p in points]
