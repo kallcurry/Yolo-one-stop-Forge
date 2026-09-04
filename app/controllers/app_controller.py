@@ -717,6 +717,10 @@ class AppController(QObject):
     def _active_annotation_dir(self) -> str:
         return current_pose_review_config().annotation_dir
 
+    def _on_module_selected(self, module_id: str):
+        if module_id in {'train', 'eval'}:
+            self.on_data_task_selected(getattr(self._win, '_current_task_type', 'pose'))
+
     def _on_annotation_dir_changed(self, name: str):
         """User picked an annotation set: switch globally and reload."""
         from app.models.annotation_review import set_active_annotation_dir
@@ -741,6 +745,10 @@ class AppController(QObject):
     def _connect_own_signals(self):
         tree = self._tree
         tree.annotation_dir_changed.connect(self._on_annotation_dir_changed)
+        # 进入训练/评估模块时再次同步全局任务（防时序遗漏）
+        win = getattr(self, '_win', None)
+        if win is not None and hasattr(win, 'module_selected'):
+            win.module_selected.connect(self._on_module_selected)
         viewer = self._viewer
         win = self._win
 
