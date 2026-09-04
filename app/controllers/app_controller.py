@@ -125,6 +125,7 @@ class AppController(QObject):
             self._training_manager.set_dataset_root(path)
         self._images = []
         self._current_index = -1
+        self._batch_annotate = False
         self._win.set_counter_text(0, 0)
         self._win.set_nav_enabled(False)
         self._win.set_action_enabled(False)
@@ -391,6 +392,7 @@ class AppController(QObject):
     def on_open_label_tool(self):
         """Open the current image and annotation in X-AnyLabeling."""
         if self._current_index < 0 or self._current_index >= len(self._images):
+            self._set_batch_annotate(False)
             QMessageBox.information(self._win, '没有图片', '请先选择一张图片。')
             return
 
@@ -460,6 +462,45 @@ class AppController(QObject):
         self._win.status_bar.showMessage(
             f'已打开标注工具: {img_path.name}', 3000
         )
+
+    def _set_batch_annotate(self, active: bool):
+        self._batch_annotate = bool(active)
+        btn = getattr(self._win, 'btn_batch_annotate', None)
+        if btn is not None:
+            btn.setChecked(self._batch_annotate)
+            btn.setText(
+                '停止连续标注' if self._batch_annotate
+                else '连续标注本文件夹'
+            )
+        if not active:
+            self._win.status_bar.showMessage('已退出连续标注模式', 3000)
+
+    def on_toggle_batch_annotate(self, checked: bool):
+        """连续标注本文件夹：逐张打开标注工具并自动翻页。"""
+        if checked:
+            self._batch_annotate = True
+            self._win.status_bar.showMessage(
+                '连续标注模式已开启：修改并保存后自动进入下一张', 4000
+            )
+            self.on_open_label_tool()
+            if not self._batch_annotate:
+                return
+        else:
+            self._set_batch_annotate(False)
+
+    def _advance_batch_annotate(self):
+        """After a label-tool session ends: jump to the next image and reopen."""
+        if not self._batch_annotate:
+            return
+        if self._current_index >= len(self._images) - 1:
+            self._set_batch_annotate(False)
+            self._win.status_bar.showMessage(
+                '✅ 本文件夹连续标注完成', 5000
+            )
+            return
+        self._navigate_next()
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(120, self.on_open_label_tool)
 
     def on_reorder_folder_keypoints(self):
         """Reorder keypoints for every annotation in the current folder."""
@@ -628,6 +669,8 @@ class AppController(QObject):
 
     def _on_label_tool_finished(self, process: QProcess):
         self._discard_label_tool_process(process)
+        if self._batch_annotate:
+            self._advance_batch_annotate()
 
         image_path = Path(process.property('image_path') or '')
         annotation_path = Path(process.property('annotation_path') or '')
@@ -769,6 +812,9 @@ class AppController(QObject):
         )
         win.btn_open_label_tool.clicked.connect(self.on_open_label_tool)
         win.action_open_label_tool.triggered.connect(self.on_open_label_tool)
+        btn_batch = getattr(win, 'btn_batch_annotate', None)
+        if btn_batch is not None:
+            btn_batch.toggled.connect(self.on_toggle_batch_annotate)
         win.task_selected.connect(self.on_data_task_selected)
         win.model_return_requested.connect(self.return_to_model_details)
         if hasattr(win, 'training_return_requested'):

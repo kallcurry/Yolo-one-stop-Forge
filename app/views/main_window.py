@@ -211,6 +211,14 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.btn_next)
         bottom.addWidget(self.lbl_counter)
         bottom.addWidget(self.btn_open_label_tool)
+        self.btn_batch_annotate = QPushButton('连续标注本文件夹')
+        self.btn_batch_annotate.setObjectName('fileOpBtn')
+        self.btn_batch_annotate.setCheckable(True)
+        self.btn_batch_annotate.setToolTip(
+            '从当前图片开始，逐张打开 X-AnyLabeling；保存退出后自动切到下一张，'
+            '直到本文件夹末尾。再次点击可随时停止。'
+        )
+        bottom.addWidget(self.btn_batch_annotate)
 
         sep_display = QWidget()
         sep_display.setObjectName('barSeparator')
