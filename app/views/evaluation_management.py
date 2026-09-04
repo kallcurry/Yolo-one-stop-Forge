@@ -384,13 +384,16 @@ class EvaluationManagementView(QWidget):
         layout.setSpacing(10)
 
         metrics = QHBoxLayout()
-        self.metrics_row = metrics
-        self.metric_total = self._metric(metrics, '总任务')
-        self.metric_queued = self._metric(metrics, '排队中')
-        self.metric_running = self._metric(metrics, '运行中')
-        self.metric_done = self._metric(metrics, '已完成')
-        self.metric_failed = self._metric(metrics, '失败')
-        layout.addLayout(metrics)
+        self.metrics_row = QWidget()
+        self.metrics_row.setObjectName('evalMetricsRow')
+        row_layout = QHBoxLayout(self.metrics_row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        self.metric_total = self._metric(row_layout, '总任务')
+        self.metric_queued = self._metric(row_layout, '排队中')
+        self.metric_running = self._metric(row_layout, '运行中')
+        self.metric_done = self._metric(row_layout, '已完成')
+        self.metric_failed = self._metric(row_layout, '失败')
+        layout.addWidget(self.metrics_row)
 
         toolbar = QHBoxLayout()
         self.filter_status = QComboBox()

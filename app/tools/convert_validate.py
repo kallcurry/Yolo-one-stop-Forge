@@ -90,7 +90,8 @@ class ConvertValidateDialog(QDialog):
             )
         QTimer.singleShot(200, self._auto_fix_annotation_dir)
         QTimer.singleShot(230, self._refresh_annotation_dir_options)
-        QTimer.singleShot(260, self._refresh_scope_list)
+        QTimer.singleShot(250, self._refresh_label_dir_options)
+        QTimer.singleShot(280, self._refresh_scope_list)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -163,6 +164,27 @@ class ConvertValidateDialog(QDialog):
         layout.addWidget(buttons)
 
     # ---- inputs ----
+
+    def _refresh_label_dir_options(self):
+        """Fill the label-dir dropdown with labels* variants present in root."""
+        root = Path(self.edit_root.text().strip()).expanduser()
+        current = self.edit_label_dir.currentText().strip() or 'labels'
+        candidates = []
+        if root.is_dir():
+            try:
+                candidates = sorted(
+                    child.name for child in root.iterdir()
+                    if child.is_dir()
+                    and child.name.lower().startswith('labels')
+                )
+            except OSError:
+                candidates = []
+        items = list(dict.fromkeys(candidates + [current]))
+        self.edit_label_dir.blockSignals(True)
+        self.edit_label_dir.clear()
+        self.edit_label_dir.addItems(items)
+        self.edit_label_dir.setCurrentText(current)
+        self.edit_label_dir.blockSignals(False)
 
     def _refresh_annotation_dir_options(self):
         """Fill the annotation-set dropdown with variants found in the root."""
@@ -258,6 +280,7 @@ class ConvertValidateDialog(QDialog):
             self.edit_root.setText(path)
             self._auto_fix_annotation_dir()
             self._refresh_annotation_dir_options()
+            self._refresh_label_dir_options()
 
     def _pick_config(self):
         path, _filter = QFileDialog.getOpenFileName(
@@ -308,12 +331,23 @@ class ConvertValidateDialog(QDialog):
             QMessageBox.warning(self, '配置无效', str(exc))
             return None
         _save_config_path(config_path)
-        # 按任务更新默认目录（多任务数据并存：labels / labels-det / ...）
+        # 按任务更新默认目录（多任务数据并存：labels / labels-det / ...）。
+        # 关键：仅当【当前标注目录不存在于文件系统】时才用任务预设目录，
+        # 避免把用户实际的下划线标注集（annotations_obb）强改成不存在的
+        # 模板名（annotations-obb）导致预览/转换全 0。
         preset = TASK_PRESETS.get(config.task_type, {})
-        if preset.get('annotation_dir'):
-            self.edit_annotation_dir.setCurrentText(str(preset['annotation_dir']))
-        if preset.get('label_dir'):
-            self.edit_label_dir.setText(str(preset['label_dir']))
+        root = Path(self.edit_root.text().strip()).expanduser()
+        current_dir = self.edit_annotation_dir.currentText().strip()
+        try:
+            current_exists = current_dir and (root / current_dir).is_dir()
+        except OSError:
+            current_exists = False
+        if not current_exists and preset.get('annotation_dir'):
+            self.edit_annotation_dir.setCurrentText(
+                str(preset['annotation_dir'])
+            )
+        if not self.edit_label_dir.currentText().strip() and preset.get('label_dir'):
+            self.edit_label_dir.setCurrentText(str(preset['label_dir']))
         return config
 
     def _resolved_dirs(self):
@@ -322,7 +356,7 @@ class ConvertValidateDialog(QDialog):
             QMessageBox.warning(self, '目录无效', f'数据根目录不存在: {root}')
             return None, None, None
         annotation_dir = self.edit_annotation_dir.currentText().strip() or 'annotations'
-        label_dir = self.edit_label_dir.text().strip() or 'labels'
+        label_dir = self.edit_label_dir.currentText().strip() or 'labels'
         return root, root / annotation_dir, root / label_dir
 
     # ---- convert tab ----
@@ -343,7 +377,13 @@ class ConvertValidateDialog(QDialog):
         self.edit_annotation_dir.setCurrentText('annotations')
         dir_row.addWidget(self.edit_annotation_dir, 1)
         dir_row.addWidget(QLabel('标签目录'))
-        self.edit_label_dir = QLineEdit('labels')
+        self.edit_label_dir = QComboBox()
+        self.edit_label_dir.setObjectName('trainingCombo')
+        self.edit_label_dir.setEditable(True)
+        self.edit_label_dir.setToolTip(
+            '标签目录（下拉可切换，也可直接输入任意名称）'
+        )
+        self.edit_label_dir.setCurrentText('labels')
         dir_row.addWidget(self.edit_label_dir, 1)
         layout.addLayout(dir_row)
 
@@ -429,6 +469,7 @@ class ConvertValidateDialog(QDialog):
         QMessageBox.warning(self, '处理失败', message)
 
     def _preview_convert(self):
+        self._auto_fix_annotation_dir()
         config = self._load_config()
         if config is None:
             return
@@ -457,6 +498,7 @@ class ConvertValidateDialog(QDialog):
         )
 
     def _run_convert(self):
+        self._auto_fix_annotation_dir()
         config = self._load_config()
         if config is None:
             return
@@ -551,6 +593,7 @@ class ConvertValidateDialog(QDialog):
         return widget
 
     def _run_validate(self):
+        self._auto_fix_annotation_dir()
         config = self._load_config()
         if config is None:
             return
