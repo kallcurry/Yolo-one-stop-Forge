@@ -43,3 +43,6 @@ labelme_stats_report.md
 
 # --- 发布宣传物料（不随仓库分发） ---
 docs/blog/
+
+# --- 个人默认配置（不进仓库） ---
+resources/app_config.json

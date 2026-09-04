@@ -1,0 +1,36 @@
+{
+  "说明": "YoloForge 默认配置模板。复制为 app_config.json 后按需修改（app_config.json 已被 git 忽略，不会推送个人配置）。",
+  "inference": {
+    "conf": 0.25,
+    "iou": 0.6,
+    "imgsz": 640,
+    "device": "auto",
+    "half": false,
+    "max_fps": 30,
+    "camera_width": 1280,
+    "camera_height": 720,
+    "record_fps": 25,
+    "record_codec": "mp4v"
+  },
+  "evaluation": {
+    "imgsz": 640,
+    "batch": 16,
+    "conf": 0.001,
+    "iou": 0.6
+  },
+  "preparation": {
+    "val_ratio": 0.2,
+    "test_ratio": 0.0,
+    "seed": 42,
+    "use_copy": false
+  },
+  "extensions": {
+    "images": [".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"]
+  },
+  "task_dirs": {
+    "pose": {"annotation_dir": "annotations", "label_dir": "labels"},
+    "detection": {"annotation_dir": "annotations-det", "label_dir": "labels-det"},
+    "segmentation": {"annotation_dir": "annotations-seg", "label_dir": "labels-seg"},
+    "obb": {"annotation_dir": "annotations-obb", "label_dir": "labels-obb"}
+  }
+}
