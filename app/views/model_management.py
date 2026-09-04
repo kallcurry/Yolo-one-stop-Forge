@@ -520,6 +520,16 @@ class ModelManagementView(QWidget):
         self.workspace_splitter.setSizes([212, 1000])
         root.addWidget(self.workspace_splitter, 1)
 
+    @staticmethod
+    def _toolbar_separator() -> "QFrame":
+        from PyQt5.QtWidgets import QFrame as _QFrame
+        separator = _QFrame()
+        separator.setObjectName('bottomSeparator')
+        separator.setFrameShape(_QFrame.VLine)
+        separator.setFrameShadow(_QFrame.Plain)
+        separator.setFixedHeight(24)
+        return separator
+
     def _build_library_page(self) -> QWidget:
         page = QWidget()
         page.setObjectName('modelLibraryPage')
@@ -534,12 +544,7 @@ class ModelManagementView(QWidget):
         toolbar.addWidget(self.lbl_results)
         toolbar.addStretch()
 
-        self.btn_compare_mode = QPushButton('模型对比')
-        self.btn_compare_mode.setObjectName('modelCompareModeBtn')
-        self.btn_compare_mode.setCheckable(True)
-        self.btn_compare_mode.setToolTip('选择两个或多个同任务模型进行训练指标对比')
-        self.btn_compare_mode.toggled.connect(self._set_comparison_mode)
-        toolbar.addWidget(self.btn_compare_mode)
+        # 模型对比按钮移至「排序搜索组」之后（工具行分组：标题 | 筛选 | 动作）
 
         self.search_edit = QLineEdit()
         self.search_edit.setObjectName('modelSearchEdit')
@@ -557,6 +562,14 @@ class ModelManagementView(QWidget):
         self.sort_combo.addItem('文件大小', 'size')
         self.sort_combo.currentIndexChanged.connect(self._apply_filters)
         toolbar.addWidget(self.sort_combo)
+        toolbar.addStretch()
+        toolbar.addWidget(self._toolbar_separator())
+        self.btn_compare_mode = QPushButton('模型对比')
+        self.btn_compare_mode.setObjectName('modelCompareModeBtn')
+        self.btn_compare_mode.setCheckable(True)
+        self.btn_compare_mode.setToolTip('选择两个或多个同任务模型进行训练指标对比')
+        self.btn_compare_mode.toggled.connect(self._set_comparison_mode)
+        toolbar.addWidget(self.btn_compare_mode)
         layout.addLayout(toolbar)
 
         self.scroll_area = QScrollArea()

@@ -1348,6 +1348,7 @@ class TrainingManagementView(QWidget):
         detail_layout.addStretch()
 
         primary_actions = QHBoxLayout()
+        primary_actions.setSpacing(8)
         self.btn_task_open = QPushButton('查看监控')
         self.btn_task_open.setObjectName('primaryBtn')
         self.btn_task_open.clicked.connect(self._open_selected_task)
@@ -1359,6 +1360,8 @@ class TrainingManagementView(QWidget):
         detail_layout.addLayout(primary_actions)
 
         secondary_actions = QGridLayout()
+        secondary_actions.setHorizontalSpacing(6)
+        secondary_actions.setVerticalSpacing(6)
         self.btn_task_edit = QPushButton('编辑草稿')
         self.btn_task_clone = QPushButton('复制配置')
         self.btn_task_retry = QPushButton('重新训练')
@@ -1385,7 +1388,7 @@ class TrainingManagementView(QWidget):
             self.btn_task_rename, self.btn_task_archive, self.btn_task_delete,
             self.btn_task_open_files,
         )):
-            secondary_actions.addWidget(button, index // 3, index % 3)
+            secondary_actions.addWidget(button, index // 4, index % 4)
         detail_layout.addLayout(secondary_actions)
         splitter.addWidget(detail)
         splitter.setStretchFactor(0, 7)
