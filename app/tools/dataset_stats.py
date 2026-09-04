@@ -30,7 +30,10 @@ def _get_empty_pose_stats():
 
 def _configure_schema(annotation_paths):
     global NUM_KPTS
-    schema = infer_annotation_schema(annotation_paths, task_type='pose')
+    from app.models.task_context import current_task_type
+    schema = infer_annotation_schema(
+        annotation_paths, task_type=current_task_type(),
+    )
     TARGET_CLASSES[:] = list(schema.target_classes)
     KEYPOINTS[:] = list(schema.keypoints)
     NUM_KPTS = len(KEYPOINTS)

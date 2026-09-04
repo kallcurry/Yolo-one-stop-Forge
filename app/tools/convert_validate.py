@@ -72,12 +72,22 @@ class _WorkerThread(QThread):
 class ConvertValidateDialog(QDialog):
     """Two-step workflow: convert JSON to YOLO TXT, then validate TXT."""
 
-    def __init__(self, default_root: str = '', parent=None):
+    def __init__(self, default_root: str = '', parent=None,
+                 task_type: str | None = None):
         super().__init__(parent)
         self.setWindowTitle('JSON ⇄ YOLO TXT 转换与校验')
         self.setMinimumSize(900, 700)
         self.resize(1080, 780)
         self._threads: list[QThread] = []
+        self._task_type = task_type
+        from app.models.task_context import default_label_config_for_task
+        self._task_default_config = default_label_config_for_task(
+            task_type,
+        )
+        if task_type and self._task_default_config:
+            QTimer.singleShot(
+                120, lambda: self._prefill_config_from_task(),
+            )
         QTimer.singleShot(200, self._auto_fix_annotation_dir)
         QTimer.singleShot(230, self._refresh_annotation_dir_options)
         QTimer.singleShot(260, self._refresh_scope_list)
@@ -91,6 +101,11 @@ class ConvertValidateDialog(QDialog):
         title.setObjectName('duplicateTitle')
         header.addWidget(title)
         header.addStretch()
+        if task_type:
+            from app.models.task_context import task_label
+            badge = QLabel(f'TASK · {task_label(task_type)}')
+            badge.setObjectName('trainingEnvironmentBadge')
+            header.addWidget(badge)
         hint = QLabel('类顺序与关键点顺序以 X-AnyLabeling 配置为准')
         hint.setObjectName('duplicateScope')
         header.addWidget(hint)
@@ -253,6 +268,15 @@ class ConvertValidateDialog(QDialog):
         if path:
             self.edit_config.setText(path)
             _save_config_path(path)
+
+    def _prefill_config_from_task(self):
+        """Fill the label config with the task default when it is empty."""
+        if not self._task_default_config:
+            return
+        current = self.edit_config.text().strip()
+        if not current or current == self._task_default_config:
+            if not current:
+                self.edit_config.setText(self._task_default_config)
 
     def _refresh_scope_list(self):
         self._auto_fix_annotation_dir()
@@ -582,5 +606,7 @@ class ConvertValidateDialog(QDialog):
         event.accept()
 
 
-def create_dialog(parent=None):
-    return ConvertValidateDialog(stored_dataset_path(), parent)
+def create_dialog(parent=None, task_type: str | None = None):
+    return ConvertValidateDialog(
+        stored_dataset_path(), parent, task_type=task_type,
+    )

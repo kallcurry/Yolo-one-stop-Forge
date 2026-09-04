@@ -24,11 +24,17 @@ def _get_empty_pose_stats():
     }
 
 
+def _current_task_type() -> str:
+    from app.models.task_context import current_task_type
+    return current_task_type()
+
+
 def _configure_schema(annotation_paths, dataset_yaml=None):
     global NUM_KPTS
     schema = infer_annotation_schema(
         annotation_paths,
-        task_type='pose',
+        task_type=_current_task_type(),
+
         dataset_yaml=dataset_yaml,
     )
     TARGET_CLASSES[:] = list(schema.target_classes)

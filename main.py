@@ -168,7 +168,9 @@ def main():
         lambda: check_duplicates.create_raw_dialog(win).exec_()
     )
     win.action_tool_convert.triggered.connect(
-        lambda: convert_validate.create_dialog(win).exec_()
+        lambda: convert_validate.create_dialog(
+            win, task_type=ctrl.current_task_type()
+        ).exec_()
     )
     win.action_tool_model_convert.triggered.connect(
         lambda: model_convert.create_dialog(win).exec_()

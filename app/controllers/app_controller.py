@@ -704,6 +704,11 @@ class AppController(QObject):
         if getattr(self, '_evaluation_manager', None) is not None:
             self._evaluation_manager.set_scope_task(task_type)
 
+    def current_task_type(self) -> str:
+        """Platform-wide task type (for tool integration)."""
+        from app.models.task_context import current_task_type
+        return current_task_type()
+
     def refresh(self):
         """Reload current directory listing and tree."""
         if self._images:
