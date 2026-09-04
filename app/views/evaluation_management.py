@@ -63,6 +63,17 @@ SERIES_COLORS = (
     '#62E8FF', '#F28AC8', '#A4D65E',
 )
 
+def _count_gt_files(test_batch: Path) -> int:
+    """Count GT label files (labels/**/*.txt) under a test batch."""
+    labels_dir = Path(test_batch) / 'labels'
+    if not labels_dir.is_dir():
+        return 0
+    try:
+        return sum(1 for path in labels_dir.rglob('*.txt'))
+    except OSError:
+        return 0
+
+
 COMPARE_METRICS = (
     ('mAP50-95', 'mAP50-95'),
     ('mAP50', 'mAP50'),
@@ -724,10 +735,10 @@ class EvaluationManagementView(QWidget):
         self.compare_chart.model_activated.connect(self._open_compare_row)
         layout.addWidget(self.compare_chart, 2)
 
-        self.compare_table = QTableWidget(0, 9)
+        self.compare_table = QTableWidget(0, 10)
         self.compare_table.setHorizontalHeaderLabels(
             ['模型', '测试批次', 'mAP50-95', 'mAP50', 'mAP75',
-             'Precision', 'Recall', '泛化差距', '评估时间']
+             'Precision', 'Recall', '训练 mAP50-95', '泛化差距', '评估时间']
         )
         self.compare_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.compare_table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -772,6 +783,8 @@ class EvaluationManagementView(QWidget):
                 'precision': metrics.get('precision'),
                 'recall': metrics.get('recall'),
                 'gap': payload.get('generalization_gap'),
+                'train_mAP50-95': train_metrics.get('mAP50-95'),
+                'per_class': payload.get('per_class') or {},
                 'latency': latency.get('ms_per_image'),
                 'created_at': str(payload.get('created_at') or record.created_at or ''),
             })
@@ -788,7 +801,27 @@ class EvaluationManagementView(QWidget):
         index = self.compare_batch.findText(current)
         self.compare_batch.setCurrentIndex(index if index >= 0 else 0)
         self.compare_batch.blockSignals(False)
+        self._refresh_compare_metrics()
         self._refresh_compare_chart()
+
+    def _refresh_compare_metrics(self):
+        """Extend the metric combo with per-class AP entries when available."""
+        current = self.compare_metric.currentData()
+        rows = self._collect_compare_rows()
+        classes = []
+        for row in rows:
+            for name in (row.get('per_class') or {}):
+                if name not in classes:
+                    classes.append(name)
+        self.compare_metric.blockSignals(True)
+        self.compare_metric.clear()
+        for key, label in COMPARE_METRICS:
+            self.compare_metric.addItem(label, key)
+        for name in classes:
+            self.compare_metric.addItem(f'类别 · {name}', f'class:{name}')
+        restore = self.compare_metric.findData(current)
+        self.compare_metric.setCurrentIndex(restore if restore >= 0 else 0)
+        self.compare_metric.blockSignals(False)
 
     def _refresh_compare_chart(self):
         batch_filter = self.compare_batch.currentText()
@@ -796,6 +829,14 @@ class EvaluationManagementView(QWidget):
         if batch_filter and batch_filter != '全部测试批次':
             rows = [row for row in rows if row['batch'] == batch_filter]
         metric_key = self.compare_metric.currentData() or 'mAP50-95'
+        if metric_key.startswith('class:'):
+            class_name = metric_key[6:]
+            for row in rows:
+                row[metric_key] = (
+                    (row.get('per_class') or {}).get(class_name, {})
+                    .get('mAP50-95')
+                )
+        self.compare_metric.setProperty('lastKey', metric_key)
         rows = [row for row in rows if row.get(metric_key) is not None]
         rows.sort(key=lambda row: row[metric_key], reverse=True)
         self._compare_rows = rows
@@ -812,10 +853,18 @@ class EvaluationManagementView(QWidget):
                 *[
                     '-' if row[key] is None else f"{row[key]:.4f}"
                     for key in ('mAP50-95', 'mAP50', 'mAP75',
-                                'precision', 'recall', 'gap')
+                                'precision', 'recall',
+                                'train_mAP50-95', 'gap')
                 ],
                 row['created_at'],
             )
+            for column in range(2, 9):
+                if column == 8:  # 泛化差距负值红色提示
+                    value = row['gap']
+                    if value is not None and float(value) < 0:
+                        item = self.compare_table.item(row_index, column)
+                        if item is not None:
+                            item.setForeground(QColor(255, 140, 140))
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 item.setData(Qt.UserRole, row_index)
@@ -954,6 +1003,19 @@ class EvaluationManagementView(QWidget):
             return
         test_root = Path(str(test_data)).expanduser().resolve()
         test_batch = self.combo_test.currentText()
+
+        # 评估前置校验：批次无 GT 标签时结果恒为 0，友好提示
+        gt_count = _count_gt_files(test_root)
+        if gt_count == 0:
+            answer = QMessageBox.warning(
+                self, '测试批次缺少标签',
+                f'测试批次 {test_batch} 下未找到任何 GT 标签文件（labels/*.txt）。\n'
+                '评估结果将为 0，可能是准备批次时未勾选「复制（独立副本）」。\n\n'
+                '仍要评估吗？',
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
 
         # 关联训练批次与任务类型：从测试批次 test_manifest.json 解析
         training_batch = ''

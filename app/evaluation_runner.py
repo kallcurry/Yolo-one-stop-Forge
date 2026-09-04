@@ -81,11 +81,15 @@ def extract_summary(results_dict: dict, task_type: str) -> dict[str, float | Non
     }
 
 
-def _metrics_block(metrics_obj, family: str) -> dict[str, Any] | None:
+def _metrics_block(metrics_obj, family: str,
+                   names: dict | None = None) -> dict[str, Any] | None:
     ap = getattr(metrics_obj, 'ap', None)
     ap50 = getattr(metrics_obj, 'ap50', None)
     class_index = getattr(metrics_obj, 'ap_class_index', None)
-    names = getattr(metrics_obj, 'names', None) or {}
+    # ultralytics >= 8.4: val metric objects no longer carry ``names``;
+    # fall back to the model's class names passed in from the runner.
+    if not names:
+        names = getattr(metrics_obj, 'names', None) or {}
     if ap is None or class_index is None:
         return None
     per_class: dict[str, dict[str, float]] = {}
@@ -98,10 +102,11 @@ def _metrics_block(metrics_obj, family: str) -> dict[str, Any] | None:
     return per_class
 
 
-def extract_per_class(metrics_obj, task_type: str) -> dict[str, dict[str, float]]:
+def extract_per_class(metrics_obj, task_type: str,
+                      names: dict | None = None) -> dict[str, dict[str, float]]:
     family = _task_family(task_type)
     for attr in ('box', 'pose', 'segment'):
-        block = _metrics_block(getattr(metrics_obj, attr, None), family)
+        block = _metrics_block(getattr(metrics_obj, attr, None), family, names)
         if block:
             return block
     return {}
@@ -221,7 +226,9 @@ def run_evaluation(job: EvaluationJob, spec_path: Path) -> Path:
         **parameters,
     )
     summary = extract_summary(results.results_dict, job.task_type)
-    per_class = extract_per_class(results, job.task_type)
+    per_class = extract_per_class(
+        results, job.task_type, names=model.names,
+    )
     latency = extract_latency(results)
     train_metrics = read_train_metrics(job.training_run_dir, job.task_type)
     output_dir = Path(job.project_dir) / job.run_name
