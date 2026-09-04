@@ -176,13 +176,38 @@ class ConvertValidateDialog(QDialog):
         current = self.edit_annotation_dir.currentText().strip() or 'annotations'
         if not root.is_dir():
             return
+        candidates = sorted(
+            child.name for child in root.iterdir()
+            if child.is_dir() and child.name.lower().startswith('annotation')
+        )
         current_dir = root / current
         if current_dir.is_dir():
             try:
-                if any(current_dir.rglob('*.json')):
-                    return  # 当前标注集真实有效，保持不动
+                current_size = sum(1 for _ in current_dir.rglob('*.json'))
             except OSError:
-                pass
+                current_size = 0
+            if current_size:
+                # 当前集有效，但若存在规模远超（>=3 倍且当前极小残留）
+                # 的更大标注集，自动让位（如 annotations 残留 1 个 vs
+                # annotations_obb 3286 个）
+                try:
+                    sizes = {
+                        name: sum(1 for _ in (root / name).rglob('*.json'))
+                        for name in candidates if (root / name).is_dir()
+                    }
+                except OSError:
+                    sizes = {}
+                for name, size in sorted(
+                    sizes.items(), key=lambda item: -item[1]
+                ):
+                    if name != current and size >= 50 and current_size * 3 < size:
+                        self.edit_annotation_dir.setCurrentText(name)
+                        self.summary.setText(
+                            f'已自动匹配更大的标注集：{name}'
+                            f'（{size} 个 JSON，当前 {current_size} 个）'
+                        )
+                        return
+                return  # 当前标注集真实有效，保持不动
         candidates = sorted(
             child.name for child in root.iterdir()
             if child.is_dir() and child.name.lower().startswith('annotation')
