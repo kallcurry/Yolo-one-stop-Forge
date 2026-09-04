@@ -269,12 +269,34 @@ def _obb_lines(shapes, config, width, height, issues) -> list[str]:
             issues.append(f'旋转框 {label!r}: 坐标无效')
             continue
         corners = [(flat[2 * i], flat[2 * i + 1]) for i in range(4)]
-        if any(
+        out_of_bounds = any(
             cx < 0 or cx > width or cy < 0 or cy > height
             for cx, cy in corners
-        ):
-            issues.append(f'旋转框 {label!r}: 越界，已跳过')
-            continue
+        )
+        if out_of_bounds:
+            # 轻微越界（越界距离 ≤5% 图幅）clamp 到边界后继续；
+            # 严重越界或 clamp 后退化才跳过——避免边界 1-2px 的框
+            # 被丢弃成背景（ultralytics 视空文件为背景，损失 GT）。
+            max_side = max(width, height, 1)
+            margin = 0.05 * max_side
+            severe = any(
+                cx < -margin or cx > width + margin
+                or cy < -margin or cy > height + margin
+                for cx, cy in corners
+            )
+            if severe:
+                issues.append(f'旋转框 {label!r}: 越界超过 5% 图幅，已跳过')
+                continue
+            clamped = [
+                (min(max(cx, 0), width), min(max(cy, 0), height))
+                for cx, cy in corners
+            ]
+            if _polygon_area(clamped) < 0.5:
+                issues.append(f'旋转框 {label!r}: 越界且退化，已跳过')
+                continue
+            corners = clamped
+            flat = [value for corner in corners for value in corner]
+            issues.append(f'旋转框 {label!r}: 轻微越界，已按边界裁剪')
         normalized = [
             flat[i] / width if i % 2 == 0 else flat[i] / height
             for i in range(8)
@@ -708,6 +730,15 @@ def preview_conversion(
     if issues:
         body += '\n' + '\n'.join('⚠ ' + issue for issue in issues[:10])
     return heading + body
+
+
+def _polygon_area(points) -> float:
+    """Shoelace polygon area (pixel units)."""
+    area = 0.0
+    for index, (x1, y1) in enumerate(points):
+        x2, y2 = points[(index + 1) % len(points)]
+        area += (x1 * y2 - x2 * y1)
+    return abs(area) / 2.0
 
 
 def _normalize_scope(scope: str | None) -> str:
