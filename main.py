@@ -8,6 +8,7 @@ import sys
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_ROOT)
 
+from PyQt5.QtCore import QSettings
 from PyQt5.QtWidgets import QApplication, QFileDialog, QVBoxLayout, QWidget
 
 from app.views.main_window import MainWindow

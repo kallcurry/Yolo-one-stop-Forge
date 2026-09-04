@@ -46,3 +46,9 @@ docs/blog/
 
 # --- 个人默认配置（不进仓库） ---
 resources/app_config.json
+
+# --- 非核心内容（不入库） ---
+.zcode/
+CODE_REVIEW_REPORT.md
+mockups/
+runs/
