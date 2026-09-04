@@ -161,6 +161,26 @@ class ConvertValidateDialog(QDialog):
         if len(candidates) == 1:
             self.edit_annotation_dir.setText(candidates[0])
             self.summary.setText(f'已自动匹配标注目录：{candidates[0]}')
+            return
+
+        def _contains_json(name: str) -> bool:
+            directory = root / name
+            if not directory.is_dir():
+                return False
+            try:
+                return any(directory.rglob('*.json'))
+            except OSError:
+                return False
+
+        # 多候选：当前目录无 JSON 时，优先选择真正含 JSON 的标注集
+        if not _contains_json(current):
+            for candidate in candidates:
+                if candidate != current and _contains_json(candidate):
+                    self.edit_annotation_dir.setText(candidate)
+                    self.summary.setText(
+                        f'已自动匹配标注目录（含 JSON）：{candidate}'
+                    )
+                    return
 
     def _pick_root(self):
         path = QFileDialog.getExistingDirectory(self, '选择数据根目录', self.edit_root.text())
