@@ -421,6 +421,10 @@ class EvaluationManagementView(QWidget):
         self.lbl_empty = QLabel('暂无评估任务 — 点击右上角「新建评估」选择模型与测试批次')
         self.lbl_empty.setObjectName('evaluationEmpty')
         self.lbl_empty.setAlignment(Qt.AlignCenter)
+        self.lbl_empty.setCursor(Qt.PointingHandCursor)
+        self.lbl_empty.mousePressEvent = (
+            lambda _event: self._show_page(EVALUATION_PAGE_NEW)
+        )
         layout.addWidget(self.lbl_empty)
 
         scroll = QScrollArea()
