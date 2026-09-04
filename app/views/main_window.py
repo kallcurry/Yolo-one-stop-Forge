@@ -1077,7 +1077,12 @@ class MainWindow(QMainWindow):
         self._current_task_type = task_type
         label = self._task_labels[task_type]
         self.btn_task_picker.setText(f'{label}  ▾')
-        self.btn_task_picker.setToolTip(self._task_display_name(task_type))
+        self.btn_task_picker.setProperty('taskType', task_type)
+        self.btn_task_picker.setToolTip(
+            f'全局任务：{self._task_display_name(task_type)} — 已同步数据/训练/评估中心'
+        )
+        self.btn_task_picker.style().unpolish(self.btn_task_picker)
+        self.btn_task_picker.style().polish(self.btn_task_picker)
         for key, action in self.task_actions.items():
             action.setChecked(key == task_type)
         if emit and not unchanged:

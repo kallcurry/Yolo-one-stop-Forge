@@ -171,6 +171,7 @@ class _ModelCard(QFrame):
         task_badge = QLabel(_task_label(record.task_type))
         task_badge.setObjectName('modelTaskBadge')
         task_badge.setProperty('taskType', record.task_type)
+        self.task_badge = task_badge
         format_badge = QLabel(record.precision)
         format_badge.setObjectName('modelMetaBadge')
         format_badge.setToolTip(
@@ -252,6 +253,12 @@ class _ModelCard(QFrame):
         if 'precision' in text:
             return '#B88CFF'
         return '#36B7FF'
+
+    def set_scope_highlight(self, active: bool):
+        """全局任务联动高亮：当前全局任务类型的卡片徽章点亮。"""
+        self.task_badge.setProperty('active', 'true' if active else 'false')
+        self.task_badge.style().unpolish(self.task_badge)
+        self.task_badge.style().polish(self.task_badge)
 
     def set_comparison_mode(self, enabled: bool, selected: bool = False):
         self._comparison_mode = bool(enabled)
@@ -1160,6 +1167,9 @@ class ModelManagementView(QWidget):
 
         for record in self._visible_models:
             card = _ModelCard(record)
+            card.set_scope_highlight(
+                getattr(self, '_scope_task_highlight', '') == record.task_type
+            )
             card.activated.connect(self._open_library_model_details)
             card.comparison_toggled.connect(self._toggle_model_comparison)
             card.data_source_requested.connect(
