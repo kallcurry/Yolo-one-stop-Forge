@@ -7,6 +7,8 @@ inference and annotation all happen off the UI thread.
 
 from __future__ import annotations
 
+from app.models.app_defaults import inference_default as _inference_default
+
 import json
 import time
 from pathlib import Path
@@ -331,7 +333,7 @@ class InferenceWorker(QThread):
                     h, w = hud.shape[:2]
                     self._recorder = cv2.VideoWriter(
                         str(self._recorder_path),
-                        cv2.VideoWriter_fourcc(*'mp4v'),
+                        cv2.VideoWriter_fourcc(*_inference_default('record_codec', 'mp4v')),
                         min(self._max_fps, 25.0),
                         (w, h),
                     )

@@ -195,9 +195,16 @@ class InferenceCenterView(QWidget):
         source_row.addWidget(self.source_container, 1)
         panel_layout.addLayout(source_row)
 
+        from app.models.app_defaults import (
+            clamp_number, inference_default,
+        )
         param_row = QHBoxLayout()
-        self.spin_conf = self._spin(0.0001, 1.0, 0.25)
-        self.spin_iou = self._spin(0.1, 1.0, 0.6)
+        self.spin_conf = self._spin(
+            0.0001, 1.0, float(inference_default('conf', 0.25)),
+        )
+        self.spin_iou = self._spin(
+            0.1, 1.0, float(inference_default('iou', 0.6)),
+        )
         for caption, control in (
             ('conf', self.spin_conf),
             ('iou', self.spin_iou),
@@ -210,13 +217,15 @@ class InferenceCenterView(QWidget):
         self.spin_imgsz.setObjectName('trainingSpin')
         self.spin_imgsz.setRange(160, 2560)
         self.spin_imgsz.setSingleStep(32)
-        self.spin_imgsz.setValue(480)
+        self.spin_imgsz.setValue(int(clamp_number(
+            inference_default('imgsz', 480), 160, 2560, 480, integer=True,
+        )))
         self.spin_imgsz.setFixedWidth(110)
         imgsz_label = QLabel('imgsz')
         imgsz_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         param_row.addWidget(imgsz_label)
         param_row.addWidget(self.spin_imgsz)
-        self.edit_device = QLineEdit('auto')
+        self.edit_device = QLineEdit(str(inference_default('device', 'auto')))
         self.edit_device.setObjectName('trainingEdit')
         self.edit_device.setToolTip('如 0、0,1 或 cpu；auto 自动选择')
         self.edit_device.setFixedWidth(110)
@@ -226,6 +235,7 @@ class InferenceCenterView(QWidget):
         param_row.addWidget(self.edit_device)
         self.check_half = QCheckBox('半精度 FP16（速度优先）')
         self.check_half.setObjectName('trainingCheck')
+        self.check_half.setChecked(bool(inference_default('half', False)))
         self.check_half.setToolTip(
             '使用 Ultralytics 官方 quantize=16 机制；若不兼容会自动回退 FP32，'
             '稳定性优先于速度时请保持关闭。'
