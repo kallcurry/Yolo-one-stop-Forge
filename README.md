@@ -97,6 +97,15 @@ python deployment/doctor.py --require-label-tool
 bash deployment/run.sh
 ```
 
+## 默认配置与全局任务
+
+- **默认配置化**：可调默认值集中管理，复制 `resources/app_config.example.json`
+  为 `resources/app_config.json` 即可按需覆盖（个人配置不入库）：
+  推理/评估/数据准备超参、统一图片扩展名、各任务标注目录名。
+  详见 [docs/configuration.md](docs/configuration.md)。
+- **全局任务联动**：顶部任务选择器一次切换，数据管理/训练中心/评估中心/
+  工具全部同步，任务类型持久化、重启自动恢复。
+
 ## 社区与支持
 
 - 🐛 问题反馈：请在本仓库提交 [Issue](https://github.com/kallcurry/Yolo-one-stop-Forge/issues)
