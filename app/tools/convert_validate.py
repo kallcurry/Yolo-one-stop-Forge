@@ -152,8 +152,15 @@ class ConvertValidateDialog(QDialog):
         """When the annotation dir does not exist, adopt the actual variant."""
         root = Path(self.edit_root.text().strip()).expanduser()
         current = self.edit_annotation_dir.text().strip() or 'annotations'
-        if not root.is_dir() or (root / current).is_dir():
+        if not root.is_dir():
             return
+        current_dir = root / current
+        if current_dir.is_dir():
+            try:
+                if any(current_dir.rglob('*.json')):
+                    return  # 当前标注集真实有效，保持不动
+            except OSError:
+                pass
         candidates = sorted(
             child.name for child in root.iterdir()
             if child.is_dir() and child.name.lower().startswith('annotation')
