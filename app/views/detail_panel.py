@@ -117,6 +117,17 @@ def _format_issue_counts(issues: list) -> str:
     return ', '.join(f'{title}×{count}' for title, count in counts.items())
 
 
+def _obb_angle_deg(points) -> float:
+    """OBB orientation: tilt of the first edge vs horizontal (0-180°)."""
+    try:
+        import math
+        x0, y0 = float(points[0][0]), float(points[0][1])
+        x1, y1 = float(points[1][0]), float(points[1][1])
+        return math.degrees(math.atan2(y1 - y0, x1 - x0)) % 180.0
+    except (TypeError, ValueError, IndexError):
+        return 0.0
+
+
 def _to_int(value) -> int:
     try:
         return int(value)
@@ -1832,9 +1843,18 @@ class DetailPanel(QWidget):
             self._add_tree_child(
                 shape_item, 'difficult', str(shape.get('difficult', False))
             )
+            shape_type = str(
+                shape.get('shape_type') or shape.get('type') or ''
+            ).strip()
+            if shape_type:
+                self._add_tree_child(shape_item, '类型', shape_type)
 
             # Per-point items with QCheckBox widgets
             points = shape.get('points', [])
+            if shape_type == 'rotation' and len(points) >= 3:
+                self._add_tree_child(
+                    shape_item, '旋转角', f'{_obb_angle_deg(points):.1f}°'
+                )
             pts_item = QTreeWidgetItem(shape_item, ['关键点', f'{len(points)} 个'])
             pts_item.setExpanded(len(points) <= 4)
             for pi, pt in enumerate(points):

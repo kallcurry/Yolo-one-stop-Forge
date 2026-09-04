@@ -194,6 +194,19 @@ TASK_PRESETS = {
     },
 }
 CURRENT_POSE_CONFIG_NAME = "ShengSong Pose 23点默认模板"
+
+
+def active_annotation_dir() -> str:
+    """Current annotation-set directory name (user-selectable)."""
+    return CURRENT_ANNOTATION_DIR
+
+
+def set_active_annotation_dir(name: str):
+    """Switch the active annotation set (e.g. annotations-obb)."""
+    global CURRENT_ANNOTATION_DIR
+    value = str(name or '').strip().strip('/')
+    if value and '..' not in value.split('/'):
+        CURRENT_ANNOTATION_DIR = value
 CURRENT_POSE_CONFIG_PATH: Path | None = None
 CURRENT_TASK_TYPE = DEFAULT_TASK_TYPE
 CURRENT_ANNOTATION_DIR = DEFAULT_ANNOTATION_DIR

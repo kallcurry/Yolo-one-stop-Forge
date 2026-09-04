@@ -342,7 +342,8 @@ class ImageViewer(QScrollArea):
                         label_y = float(points[0][1]) * sy
                         painter.setPen(text_color)
                         painter.drawText(
-                            QPointF(label_x, label_y - 6), str(label)
+                            QPointF(label_x, label_y - 6),
+                            f'↻ {label}',
                         )
                         n_bbox += 1
                         continue

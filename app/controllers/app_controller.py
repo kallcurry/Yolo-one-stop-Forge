@@ -118,6 +118,9 @@ class AppController(QObject):
         self._save_last_dir(path)
         self._win.status_bar.showMessage(f'已打开: {path}')
         self._tree.load_root(path)
+        self._tree.populate_annotation_dirs(
+            normalized_path, current=self._active_annotation_dir(),
+        )
         if self._training_manager is not None:
             self._training_manager.set_dataset_root(path)
         self._images = []
@@ -709,6 +712,13 @@ class AppController(QObject):
     def _active_annotation_dir(self) -> str:
         return current_pose_review_config().annotation_dir
 
+    def _on_annotation_dir_changed(self, name: str):
+        """User picked an annotation set: switch globally and reload."""
+        from app.models.annotation_review import set_active_annotation_dir
+        set_active_annotation_dir(name)
+        self._load_current()
+        self._refresh_review_decision_views('标注集已切换')
+
     def _find_annotation(self, image_path: Path) -> Path | None:
         return find_annotation(
             image_path,
@@ -725,6 +735,7 @@ class AppController(QObject):
 
     def _connect_own_signals(self):
         tree = self._tree
+        tree.annotation_dir_changed.connect(self._on_annotation_dir_changed)
         viewer = self._viewer
         win = self._win
 

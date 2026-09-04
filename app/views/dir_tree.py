@@ -6,6 +6,9 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QStandardItem, QStandardItemModel
 from PyQt5.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
+    QLabel,
+    QHBoxLayout,
     QMenu,
     QMessageBox,
     QTreeView,
@@ -26,6 +29,7 @@ TOTAL_COLOR = QColor('#93A1B3')              # gray for count text
 
 
 class DirTreePanel(QWidget):
+    annotation_dir_changed = pyqtSignal(str)
     """Left panel: directory tree with format color-coding."""
 
     directory_selected = pyqtSignal(str, DirFormat)
@@ -42,6 +46,24 @@ class DirTreePanel(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+
+        selector = QHBoxLayout()
+        selector.setContentsMargins(8, 6, 8, 2)
+        selector.setSpacing(6)
+        caption = QLabel('标注集')
+        caption.setObjectName('captionLabel')
+        selector.addWidget(caption)
+        self.annotation_combo = QComboBox()
+        self.annotation_combo.setObjectName('smallCombo')
+        self.annotation_combo.setEditable(True)
+        self.annotation_combo.setToolTip(
+            '当前数据目录使用的标注集目录名（自动探测后可选）'
+        )
+        self.annotation_combo.currentIndexChanged.connect(
+            self._emit_annotation_dir
+        )
+        selector.addWidget(self.annotation_combo, 1)
+        layout.addLayout(selector)
 
         self.model = QStandardItemModel()
         self.model.setHorizontalHeaderLabels(['目录'])
@@ -63,6 +85,33 @@ class DirTreePanel(QWidget):
         self.tree.viewport().installEventFilter(self)
 
         layout.addWidget(self.tree)
+
+    def populate_annotation_dirs(self, root_path: str, current: str = ''):
+        """Discover annotation-set directories under the data root."""
+        self.annotation_combo.blockSignals(True)
+        self.annotation_combo.clear()
+        root = Path(str(root_path))
+        discovered = []
+        if root.is_dir():
+            for child in sorted(root.iterdir()):
+                if child.is_dir() and 'annotation' in child.name.lower():
+                    discovered.append(child.name)
+        if not discovered:
+            discovered = ['annotations']
+        current = str(current or '').strip()
+        items = list(dict.fromkeys(discovered + ([current] if current else [])))
+        for name in items:
+            self.annotation_combo.addItem(name)
+        if current and current in items:
+            self.annotation_combo.setCurrentText(current)
+        elif items:
+            self.annotation_combo.setCurrentIndex(0)
+        self.annotation_combo.blockSignals(False)
+
+    def _emit_annotation_dir(self):
+        name = self.annotation_combo.currentText().strip()
+        if name:
+            self.annotation_dir_changed.emit(name)
 
     def load_root(self, root_path: str):
         """Populate the tree from a root directory path."""
