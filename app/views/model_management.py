@@ -52,6 +52,7 @@ from PyQt5.QtWidgets import (
 
 from app.views.ui_effects import HoverGlow
 from app.views.model_comparison import ModelComparisonPage
+from app.views.sparkline import SparklineWidget
 from app.models.model_registry import (
     DatasetSource,
     ModelRecord,
@@ -214,6 +215,43 @@ class _ModelCard(QFrame):
         arrow.setObjectName('modelCardArrow')
         footer.addWidget(arrow, 0, Qt.AlignBottom)
         layout.addLayout(footer)
+
+        # mAP sparkline：主指标训练曲线迷你趋势（mAP50-95 序列优先）
+        self.sparkline = SparklineWidget()
+        series = self._primary_metric_series(record)
+        if series and len(series.points) >= 2:
+            self.sparkline.set_series(
+                [(point.epoch, point.value) for point in series.points],
+                color=self._series_color(series.key),
+            )
+            self.sparkline.setToolTip(
+                f'{series.label} 走势（每轮 {len(series.points)} 点）'
+            )
+        else:
+            self.sparkline.setFixedHeight(0)
+            self.sparkline.setVisible(False)
+        layout.addWidget(self.sparkline)
+
+    @staticmethod
+    def _primary_metric_series(record):
+        """Best series for the card: mAP50-95 family, else first series."""
+        candidates = list(record.metric_series or ())
+        preferred = [
+            series for series in candidates
+            if 'mAP50-95' in str(series.key) or 'map50' in str(series.key).lower()
+        ]
+        return preferred[0] if preferred else (candidates[0] if candidates else None)
+
+    @staticmethod
+    def _series_color(key: str) -> str:
+        text = str(key).lower()
+        if 'seg' in text or 'mask' in text:
+            return '#45D483'
+        if 'obb' in text:
+            return '#F5A524'
+        if 'precision' in text:
+            return '#B88CFF'
+        return '#36B7FF'
 
     def set_comparison_mode(self, enabled: bool, selected: bool = False):
         self._comparison_mode = bool(enabled)
