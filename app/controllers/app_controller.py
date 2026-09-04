@@ -1565,6 +1565,53 @@ class AppController(QObject):
         )
 
     def _scan_review_stats(self):
+        """Async folder review-stats scan (off-UI-thread)."""
+        if not self._images:
+            return
+        worker = getattr(self, '_review_stats_worker', None)
+        if worker is not None and worker.isRunning():
+            return  # 防重入
+        annotation_dir = self._active_annotation_dir()
+        self._win.status_bar.showMessage(
+            f'正在后台审查 {len(self._images)} 张图片 '
+            f'(任务={self._active_task_type()}, 标注集={annotation_dir})…'
+        )
+        from app.models.review_stats_worker import ReviewStatsWorker
+        worker = ReviewStatsWorker(
+            self, list(self._images), annotation_dir,
+        )
+        self._review_stats_worker = worker
+        worker.result_ready.connect(self._apply_review_stats_result)
+        worker.failed.connect(
+            lambda message: self._win.status_bar.showMessage(
+                f'审查统计失败: {message}', 6000,
+            )
+        )
+        worker.start()
+
+    def _apply_review_stats_result(self, payload):
+        try:
+            total, rows, folder_summary = payload
+            if self._detail:
+                self._detail.show_review_stats(total, rows, folder_summary)
+        except Exception as exc:  # noqa: BLE001 - 统计结果渲染失败不崩溃
+            self._win.status_bar.showMessage(
+                f'审查统计渲染失败（{type(exc).__name__}: {exc}）', 8000,
+            )
+            return
+        problem_images = min(
+            total,
+            folder_summary['issue_files']
+            + folder_summary['missing_annotations']
+            + folder_summary['invalid_annotations'],
+        )
+        self._win.status_bar.showMessage(
+            f'审查统计完成: {problem_images} / {total} 张图片待处理, '
+            f'{folder_summary["manual_pass_files"]} 张人工通过',
+            4000,
+        )
+
+    def _scan_review_stats_sync_legacy(self):
         if not self._images:
             return
 

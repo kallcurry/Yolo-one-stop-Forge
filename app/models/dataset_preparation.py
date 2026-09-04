@@ -1008,14 +1008,37 @@ def _validate_simple_name(value: str, field_name: str):
         raise DatasetPreparationError(f'{field_name}必须是单个目录名称')
 
 
+def _peer_variants(name: str):
+    """Canonical + underscore/dash swapped variants (annotations-obb ↔ _obb)."""
+    names = [name]
+    swapped = name.replace('-', '_')
+    if swapped != name:
+        names.append(swapped)
+    swapped_back = name.replace('_', '-')
+    if swapped_back != name and swapped_back not in names:
+        names.append(swapped_back)
+    return names
+
+
+def resolve_annotation_dir(root: Path, annotation_dir: str) -> str | None:
+    """Actual annotation-dir name present on disk (variant-aware)."""
+    if annotation_dir and (root / annotation_dir).is_dir():
+        return annotation_dir
+    for name in _peer_variants(annotation_dir):
+        if name != annotation_dir and (root / name).is_dir():
+            return name
+    return None
+
+
 def _find_source_peer(root: Path, peer_name: str,
                       image_dir: Path) -> Path | None:
-    standard = root / peer_name / image_dir.name
-    if standard.is_dir():
-        return standard
-    nested = image_dir / peer_name
-    if nested.is_dir():
-        return nested
+    for name in _peer_variants(peer_name):
+        standard = root / name / image_dir.name
+        if standard.is_dir():
+            return standard
+        nested = image_dir / name
+        if nested.is_dir():
+            return nested
     return None
 
 
